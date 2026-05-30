@@ -8,6 +8,7 @@ __pycache__/
 .DS_Store
 .env
 eval/sft_ready_traces.jsonl
+logs/
+sql/synthetic_data.sql
 demo_screenshots/
 *.log
-

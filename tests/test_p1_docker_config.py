@@ -20,4 +20,5 @@ def test_dockerignore_excludes_local_only_artifacts():
     assert ".env" in dockerignore
     assert "__pycache__/" in dockerignore
     assert "eval/sft_ready_traces.jsonl" in dockerignore
-
+    assert "logs/" in dockerignore
+    assert "sql/synthetic_data.sql" in dockerignore

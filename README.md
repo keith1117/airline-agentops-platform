@@ -8,6 +8,12 @@ P1 is complete for the current portfolio scope. The customer agent can save rout
 
 P0.5 adds a Figma-inspired visual refresh for portfolio presentation: travel hero, refined navigation, dashboard cards, readable tables, and polished Agent/Copilot chat panels. It is presentation-only and does not change Agent behavior.
 
+P2 has started with lightweight observability: the Agent service now records request counts, latency, role labels, tool-call counts, and error counts in memory and JSONL logs. It exposes a read-only metrics endpoint for demos and later Locust benchmark reporting.
+
+P2 also includes a Locust smoke-test profile for small-scale load testing. The goal is not high-scale benchmarking yet; it is a repeatable 20-user smoke that exercises customer search, policy QA, staff review analytics, staff sales reporting, and metrics collection.
+
+P2 also includes a deterministic synthetic data generator. By default it generates local SQL for 24 airports, 10k flights, 2k customers, 50k tickets, and 5k reviews. It does not modify MySQL unless `--apply` is explicitly passed.
+
 It intentionally uses synthetic/demo airline inventory and mock payment. It does **not** connect to real airline inventory, real ticketing systems, or real payment processors.
 
 ## Architecture
@@ -21,6 +27,7 @@ flowchart LR
     FastAPI --> RAG[Policy RAG Retriever]
     RAG --> Policy[Markdown Policy KB]
     FastAPI --> Traces[(agent_traces)]
+    FastAPI --> Metrics[Metrics JSONL + /api/metrics]
 ```
 
 ## P0 Demo Flows
@@ -177,7 +184,7 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified result:
 
 ```text
-22 passed
+28 passed
 ```
 
 P0.5 UI smoke result:
@@ -213,6 +220,200 @@ Current Docker config test result:
 2 passed
 ```
 
+P2 Observability smoke:
+
+```bash
+curl http://127.0.0.1:8001/api/metrics
+```
+
+Metrics include:
+
+- `total_requests`
+- `error_count`
+- `avg_latency_ms`
+- per-endpoint request count, average latency, error count, and tool-call count
+- per-role request count, error count, and tool-call count
+
+The Agent service also writes JSONL metrics events to `logs/agent_metrics.jsonl` by default. This file is ignored by Git because it is runtime output.
+
+Current P2 observability test result:
+
+```text
+2 passed
+```
+
+P2 Locust smoke load test:
+
+```bash
+bash scripts/run_locust_smoke.sh
+```
+
+Defaults:
+
+- target: `http://127.0.0.1:8001`
+- users: `20`
+- spawn rate: `5`
+- run time: `1m`
+- CSV output prefix: `logs/locust_smoke`
+
+Override example:
+
+```bash
+LOCUST_USERS=50 LOCUST_SPAWN_RATE=10 LOCUST_RUN_TIME=2m bash scripts/run_locust_smoke.sh
+```
+
+The Locust profile covers:
+
+- customer natural-language flight search
+- customer RAG policy QA
+- staff review analytics
+- staff sales reporting
+- metrics endpoint polling
+
+After a run, use Locust CSV output plus `http://127.0.0.1:8001/api/metrics` to report request count, error rate, and latency behavior.
+
+Current local smoke result against the Agent service:
+
+```text
+users: 2
+runtime: 10s
+requests: 55
+failures: 0
+aggregated avg latency: 14 ms
+aggregated p95 latency: 38 ms
+```
+
+P2 Synthetic Data Generator:
+
+```bash
+python -m scripts.generate_synthetic_data
+```
+
+Default output:
+
+```text
+sql/synthetic_data.sql
+```
+
+Default generated scale:
+
+- 24 airports
+- 10,000 flights
+- 2,000 customers
+- 50,000 tickets
+- 5,000 reviews
+
+Small local smoke example:
+
+```bash
+python -m scripts.generate_synthetic_data \
+  --airports 5 \
+  --flights 12 \
+  --customers 8 \
+  --tickets 20 \
+  --reviews 6 \
+  --output /tmp/part3_synthetic_smoke.sql
+```
+
+Apply to the configured MySQL database only when you intentionally want to load the generated rows:
+
+```bash
+python -m scripts.generate_synthetic_data --apply
+```
+
+Generated SQL uses the synthetic airline `SyntheticAir`, `SYN`-prefixed airplane/flight IDs, `synthetic...@demo.local` customers, and `INSERT IGNORE` so existing P0 demo rows are preserved.
+
+## Benchmark / Results
+
+Current local verification summary:
+
+| Area | Command / Source | Result |
+| --- | --- | --- |
+| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `28 passed in 1.33s` |
+| Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
+| Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
+| Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `20/20 passed`, tool accuracy `1.0`, citation presence `1.0` |
+| Trace export | `python -m agent_service.export_traces` | SFT-ready JSONL trajectory format |
+| Docker Compose config | `docker compose config` | MySQL, seed, FastAPI Agent, Flask web app configured |
+
+Locust smoke benchmark:
+
+| Scenario | Requests | Failures | Avg Latency | P95 Latency |
+| --- | ---: | ---: | ---: | ---: |
+| Customer flight search | 11 | 0 | 32 ms | 52 ms |
+| Customer policy QA | 11 | 0 | 13 ms | 16 ms |
+| Staff review analytics | 11 | 0 | 14 ms | 16 ms |
+| Staff sales report | 11 | 0 | 11 ms | 14 ms |
+| Metrics polling | 11 | 0 | 2 ms | 3 ms |
+| Aggregated | 55 | 0 | 14 ms | 38 ms |
+
+Agent metrics after the Locust smoke:
+
+| Metric | Value |
+| --- | ---: |
+| Total Agent requests observed | 58 |
+| Error count | 0 |
+| Average service latency | 12.14 ms |
+| Customer tool calls | 24 |
+| Staff tool calls | 22 |
+
+Synthetic data generation benchmark:
+
+| Generator Mode | Scale | Result |
+| --- | --- | --- |
+| Default local generation | 24 airports, 10k flights, 2k customers, 50k tickets, 5k reviews | Writes `sql/synthetic_data.sql` without modifying MySQL |
+| Smoke generation | 5 airports, 12 flights, 8 customers, 20 tickets, 6 reviews | SQL generated successfully |
+| Integrity tests | Parent/child foreign-key consistency and SQL order | `2 passed` |
+
+These are local development results on a small demo stack. They are useful for portfolio evidence and regression tracking, not claims of production-scale throughput.
+
+## Advanced Eval / Agentic RL Design
+
+Real Agentic RL and model fine-tuning are intentionally out of scope for this portfolio MVP. The project instead prepares the engineering inputs that such optimization would need: deterministic eval tasks, trace logging, tool-call metadata, citations, latency metrics, and failed-case reporting.
+
+Current implemented evaluation:
+
+- deterministic JSONL eval suite
+- expected tool checks
+- expected answer keyword checks
+- forbidden tool checks
+- citation presence checks
+- average-step reporting
+- failed-case reporting
+
+Future advanced eval design:
+
+| Capability | Design |
+| --- | --- |
+| Citation correctness | Add tests that verify retrieved policy section IDs match expected evidence, not only citation presence. |
+| Tool argument accuracy | Compare generated tool arguments against expected airport, airline, date, budget, and role constraints. |
+| Multi-step task success | Add tasks requiring memory lookup, search, booking intent creation, and confirmation safety checks. |
+| Regression tracking | Store eval summaries per run and compare task success, tool accuracy, citation correctness, latency, and error rate over time. |
+| Failure clustering | Group failed traces by failure mode: wrong tool, missing citation, unsafe action, bad arguments, timeout, or no-context hallucination. |
+
+Future Agentic RL design:
+
+| Reward Signal | Purpose |
+| --- | --- |
+| Task completion | Reward final answers that satisfy the target task. |
+| Correct tool selection | Reward choosing the expected tool for the user intent. |
+| Tool argument correctness | Reward valid route/date/customer/airline parameters. |
+| Safety and permission compliance | Penalize staff/customer role violations and booking without confirmation. |
+| Citation correctness | Reward policy answers grounded in the right knowledge chunks. |
+| Efficiency | Penalize unnecessary steps, retries, latency, and avoidable tool calls. |
+| Controlled failure | Reward saying no or returning no-context fallback when evidence is missing. |
+
+Optimization loop:
+
+1. Run deterministic eval and Locust smoke tests.
+2. Export traces and failed cases.
+3. Label failure modes.
+4. Improve prompts, tool descriptions, argument parsing, and RAG chunks.
+5. Re-run eval and compare metrics.
+6. Use high-quality successful traces as SFT candidates only after manual review.
+
+Boundary: this project does not claim real SFT or Agentic RL training. It demonstrates the logging, eval, and reward-signal design needed to support those future steps.
+
 P0 acceptance covers:
 
 - Customer flight search calls `search_flights`
@@ -226,10 +427,11 @@ P0 acceptance covers:
 ## Boundaries
 
 - Demo inventory is synthetic and seeded locally.
+- Large synthetic data is generated locally and is not committed to Git.
 - Payment is mocked with a non-real payment token.
 - This is a production-like MVP, not a real airline commerce platform.
-- P2 items such as large-scale data generation, load testing, observability dashboards, SFT, and Agentic RL are intentionally out of scope for the current stable demo.
+- Real SFT and Agentic RL training are not implemented. The project includes eval, trace export, and reward-signal design for future optimization.
 
 ## Resume Line
 
-Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, and 22 passing P0/P1/P0.5 acceptance tests.
+Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, and 28 passing P0/P1/P0.5/P2 tests.

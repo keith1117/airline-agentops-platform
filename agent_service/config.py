@@ -19,7 +19,7 @@ class Settings:
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     rag_policy_path: str = os.getenv("RAG_POLICY_PATH", "docs/policies/airline_policy.md")
     max_agent_steps: int = int(os.getenv("MAX_AGENT_STEPS", "4"))
+    metrics_log_path: str = os.getenv("METRICS_LOG_PATH", "logs/agent_metrics.jsonl")
 
 
 settings = Settings()
-
