@@ -134,3 +134,39 @@ def test_invalid_booking_idempotency_key_does_not_issue_ticket(agent):
 
     assert result["status"] == "FAILED"
     assert "Invalid idempotency key" in result["message"]
+
+
+def test_customer_flight_search_excludes_cancelled_inventory(agent):
+    from datetime import datetime, timedelta
+
+    dep = datetime.combine(first_day_next_month() + timedelta(days=9), datetime.min.time()).replace(hour=10)
+    arr = dep + timedelta(hours=2)
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO Flight(airline_name, flight_number, departure_date_time, arrival_date_time,
+                                   base_price, departure_airport, arrival_airport, airplane_id_number, status)
+                VALUES('United', 'P0CAN', %s, %s, 100.00, 'SFO', 'LAX', 'P0-737', 'CANCELLED')
+                ON DUPLICATE KEY UPDATE status=VALUES(status), base_price=VALUES(base_price)
+                """,
+                (dep, arr),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    resp = agent.customer_chat(
+        "p1-core-no-cancelled",
+        "testcustomer@nyu.edu",
+        "Find flights from SFO to LAX next month",
+    )
+
+    flights = []
+    for call in resp["tool_calls"]:
+        if call["name"] == "search_flights":
+            flights.extend(call["result"].get("flights", []))
+    assert flights
+    assert all(flight["status"] != "CANCELLED" for flight in flights)
+    assert "P0CAN" not in resp["answer"]

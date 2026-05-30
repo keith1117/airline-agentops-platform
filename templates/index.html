@@ -6,21 +6,17 @@
     <p class="page-kicker">Production-like AI Agent MVP</p>
     <h1>Book smarter flights with AI assistance.</h1>
     <p class="hero-copy">Search synthetic airline inventory, ask cited policy questions, and confirm mock bookings through a controlled Agent workflow.</p>
-    <div class="hero-actions">
-      <a class="btn" href="{{ url_for('login') }}">Start Demo</a>
-      <a class="btn btn-secondary" href="{{ url_for('register_customer') }}">Create Customer</a>
-    </div>
   </div>
   <div class="hero-search card">
     <div class="search-tab">Flights</div>
     <form method="POST" action="{{ url_for('public_search') }}" class="search-grid">
       <div>
         <span>From</span>
-        <input name="depart" maxlength="3" value="{{ dep or 'SFO' }}" required>
+        <input name="depart" maxlength="3" value="{{ dep or '' }}" required>
       </div>
       <div>
         <span>To</span>
-        <input name="arrive" maxlength="3" value="{{ arr or 'LAX' }}" required>
+        <input name="arrive" maxlength="3" value="{{ arr or '' }}" required>
       </div>
       <div>
         <span>Date</span>
@@ -44,8 +40,8 @@
   </div>
   <div class="card">
     <span>Acceptance</span>
-    <strong>18 passed</strong>
-    <p>P0/P1 tested against MySQL and Docker Compose.</p>
+    <strong>34 passed</strong>
+    <p>Regression suite covers Agent guardrails, RAG citations, booking confirmation, Docker MySQL, and UI smoke.</p>
   </div>
 </section>
 

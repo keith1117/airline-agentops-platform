@@ -2,17 +2,19 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1 Agent demo** for AI application engineering: ReAct-style tool routing, safe tool calling, RAG policy QA with citations, pending booking confirmation, role-based staff analytics, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, and acceptance tests.
+This project demonstrates a stable **P0/P1/P2 Agent demo** for AI application engineering: ReAct-style tool routing, safe tool calling, RAG policy QA with citations, pending booking confirmation, role-based staff analytics, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
 P0.5 adds a Figma-inspired visual refresh for portfolio presentation: travel hero, refined navigation, dashboard cards, readable tables, and polished Agent/Copilot chat panels. It is presentation-only and does not change Agent behavior.
 
-P2 has started with lightweight observability: the Agent service now records request counts, latency, role labels, tool-call counts, and error counts in memory and JSONL logs. It exposes a read-only metrics endpoint for demos and later Locust benchmark reporting.
+P2 adds lightweight observability: the Agent service records request counts, latency, role labels, tool-call counts, and error counts in memory and JSONL logs. It exposes a read-only metrics endpoint for demos and Locust benchmark reporting.
 
 P2 also includes a Locust smoke-test profile for small-scale load testing. The goal is not high-scale benchmarking yet; it is a repeatable 20-user smoke that exercises customer search, policy QA, staff review analytics, staff sales reporting, and metrics collection.
 
 P2 also includes a deterministic synthetic data generator. By default it generates local SQL for 24 airports, 10k flights, 2k customers, 50k tickets, and 5k reviews. It does not modify MySQL unless `--apply` is explicitly passed.
+
+The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
 
 It intentionally uses synthetic/demo airline inventory and mock payment. It does **not** connect to real airline inventory, real ticketing systems, or real payment processors.
 
@@ -38,7 +40,7 @@ Customer Booking Agent at `/customer/agent`:
 - Ask RAG policy questions: `Can I get a refund if my flight is cancelled?`
 - Create a pending mock booking: `Book United flight P0206 at 2026-06-08 09:30:00`
 - Confirm the pending booking before a mock ticket is written
-- Display answer, tool calls, citations, and confirmation button
+- Display customer-facing answers, citations, structured flight results, and confirmation button; internal tool calls are still recorded in backend traces
 - P1 Memory prompt: `Remember I prefer United and usually fly SFO to LAX under 500`
 - Later memory-backed search: `Find flights next month`
 
@@ -67,6 +69,10 @@ Staff tools:
 - `answer_policy_question`
 
 The agent cannot execute raw SQL. Database-backed actions must go through registered tools. Customer sessions cannot call staff-only tools.
+
+Customer-facing flight availability excludes cancelled flights. Cancelled inventory remains available to staff workflows for operational review, but it is not shown as bookable inventory in customer search or customer Agent flight results.
+
+The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
 
 ## Run Locally
 
@@ -184,13 +190,13 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified result:
 
 ```text
-28 passed
+34 passed
 ```
 
 P0.5 UI smoke result:
 
 ```text
-4 passed
+5 passed
 ```
 
 P1 Docker config tests:
@@ -323,16 +329,25 @@ python -m scripts.generate_synthetic_data --apply
 
 Generated SQL uses the synthetic airline `SyntheticAir`, `SYN`-prefixed airplane/flight IDs, `synthetic...@demo.local` customers, and `INSERT IGNORE` so existing P0 demo rows are preserved.
 
+Curated professional demo seed for the main Docker MySQL database:
+
+```bash
+MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 MYSQL_USER=root MYSQL_PASSWORD=root MYSQL_DB="Airline Ticket Reservation System" \
+python -m scripts.seed_professional_demo --apply
+```
+
+This smaller seed is intended for interview demos, not load testing. It adds 12 airports, 60 United flights, 20 demo customers, 90 tickets, and 45 reviews using high ticket IDs and `INSERT IGNORE`, so the stable P0 booking flow remains available. The large 10k-flight generator remains separate for benchmark experiments.
+
 ## Benchmark / Results
 
 Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `28 passed in 1.33s` |
+| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `34 passed in 1.21s` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
-| Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `20/20 passed`, tool accuracy `1.0`, citation presence `1.0` |
+| Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
 | Trace export | `python -m agent_service.export_traces` | SFT-ready JSONL trajectory format |
 | Docker Compose config | `docker compose config` | MySQL, seed, FastAPI Agent, Flask web app configured |
 
@@ -423,10 +438,13 @@ P0 acceptance covers:
 - Staff copilot calls staff analytics tools
 - Customer cannot call staff-only tools
 - Staff chat does not execute customer booking tools
+- Identity and out-of-scope prompts do not trigger unrelated tools
+- Customer flight availability excludes cancelled flights
 
 ## Boundaries
 
 - Demo inventory is synthetic and seeded locally.
+- Curated professional demo data is available as a committed SQL seed for the main Docker MySQL demo database.
 - Large synthetic data is generated locally and is not committed to Git.
 - Payment is mocked with a non-real payment token.
 - This is a production-like MVP, not a real airline commerce platform.
@@ -434,4 +452,4 @@ P0 acceptance covers:
 
 ## Resume Line
 
-Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, and 28 passing P0/P1/P0.5/P2 tests.
+Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, intent guardrails, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, curated demo data, and 34 passing P0/P1/P0.5/P2 tests.

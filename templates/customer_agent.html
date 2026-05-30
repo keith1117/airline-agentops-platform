@@ -39,26 +39,6 @@
             </table>
           </div>
         {% endif %}
-        {% if m.tool_summaries %}
-          <details class="agent-details">
-            <summary>Tool calls</summary>
-            <ul class="tool-list">
-              {% for call in m.tool_summaries %}
-                <li>
-                  <span class="tool-name">{{ call.label }}</span>
-                  {% if call.count is not none %}<span class="tool-count">{{ call.count }} result{{ 's' if call.count != 1 else '' }}</span>{% endif %}
-                  {% if call.args %}
-                    <span class="tool-args">
-                      {% for key, value in call.args.items() %}
-                        {{ key }}={{ value }}{% if not loop.last %}, {% endif %}
-                      {% endfor %}
-                    </span>
-                  {% endif %}
-                </li>
-              {% endfor %}
-            </ul>
-          </details>
-        {% endif %}
         {% if m.meta.citations %}
           <div class="citation-list" aria-label="Citations">
             {% for c in m.meta.citations %}
@@ -82,7 +62,7 @@
   </div>
 
   <form method="post" class="agent-input">
-    <textarea name="message" rows="3" placeholder="Find flights from SFO to LAX next month"></textarea>
+    <textarea name="message" rows="3"></textarea>
     <button type="submit">Send</button>
   </form>
 </section>

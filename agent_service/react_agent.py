@@ -62,7 +62,9 @@ class ReActAgent:
         reasoning = "Classify customer request and call the safest allowed tool."
         try:
             lower = message.lower()
-            if self._is_policy_question(lower):
+            if self._is_identity_question(lower):
+                answer = f"You are currently logged in as customer {customer_email}."
+            elif self._is_policy_question(lower):
                 result = self.registry.call("customer", "answer_policy_question", question=message)
                 tool_calls.append({"name": "answer_policy_question", "args": {"question": message}, "result": result})
                 answer = result["answer"]
@@ -121,7 +123,7 @@ class ReActAgent:
                     result = self.registry.call("customer", "search_flights", departure_airport=dep, arrival_airport=arr)
                     tool_calls.append({"name": "search_flights", "args": {"departure_airport": dep, "arrival_airport": arr}, "result": result})
                     answer = self._format_flights(result) + " Tell me the flight number and departure time to create a booking intent."
-            else:
+            elif self._is_customer_search_question(lower, message):
                 dep, arr = parse_airports(message)
                 period = "next_month" if "next month" in lower else None
                 max_price = self._extract_budget(message)
@@ -151,6 +153,8 @@ class ReActAgent:
                     }
                 )
                 answer = self._format_flights(result)
+            else:
+                answer = self._customer_scope_fallback()
         except Exception as exc:
             error = str(exc)
             answer = f"The agent hit a controlled error: {error}"
@@ -166,7 +170,9 @@ class ReActAgent:
         reasoning = "Classify staff analytics request and call staff-only reporting tools."
         try:
             lower = message.lower()
-            if self._is_policy_question(lower):
+            if self._is_identity_question(lower):
+                answer = f"You are currently logged in as staff user {staff_username} for {airline_name}."
+            elif self._is_policy_question(lower):
                 result = self.registry.call("staff", "answer_policy_question", question=message)
                 tool_calls.append({"name": "answer_policy_question", "args": {"question": message}, "result": result})
                 answer = result["answer"]
@@ -185,11 +191,13 @@ class ReActAgent:
                 tool_calls.append({"name": "get_route_performance", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("rows")
                 answer = self._format_table("Route performance", result.get("rows", []))
-            else:
+            elif any(word in lower for word in ["sales", "revenue", "report", "monthly", "last year", "ticket sales", "销售", "收入", "报表"]):
                 result = self.registry.call("staff", "get_sales_report", airline_name=airline_name)
                 tool_calls.append({"name": "get_sales_report", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("rows")
                 answer = self._format_table("Sales report", result.get("rows", []))
+            else:
+                answer = self._staff_scope_fallback()
         except Exception as exc:
             error = str(exc)
             answer = f"The staff copilot hit a controlled error: {error}"
@@ -242,6 +250,58 @@ class ReActAgent:
     @staticmethod
     def _is_policy_question(lower: str) -> bool:
         return any(word in lower for word in ["refund", "baggage", "bag", "delay", "cancel", "policy", "payment", "行李", "退款", "延误", "政策"])
+
+    @staticmethod
+    def _is_identity_question(lower: str) -> bool:
+        return any(
+            phrase in lower
+            for phrase in [
+                "what is my name",
+                "what's my name",
+                "who am i",
+                "whoami",
+                "my username",
+                "my email",
+                "logged in as",
+                "我的名字",
+                "我是谁",
+            ]
+        )
+
+    @staticmethod
+    def _is_customer_search_question(lower: str, message: str) -> bool:
+        dep, arr = parse_airports(message)
+        return bool(
+            dep
+            or arr
+            or any(
+                phrase in lower
+                for phrase in [
+                    "flight",
+                    "flights",
+                    "fly",
+                    "search",
+                    "find",
+                    "next month",
+                    "航班",
+                    "机票",
+                ]
+            )
+        )
+
+    @staticmethod
+    def _customer_scope_fallback() -> str:
+        return (
+            "I can help with airline workflows: flight search, your trips, airline policy questions, "
+            "travel preferences, and pending mock bookings. I will not call tools for unrelated requests."
+        )
+
+    @staticmethod
+    def _staff_scope_fallback() -> str:
+        return (
+            "I can help with airline operations: sales reports, review analysis, load-factor checks, "
+            "route performance, and policy questions. I will not call tools for unrelated requests."
+        )
 
     @staticmethod
     def _extract_budget(message: str) -> Optional[float]:

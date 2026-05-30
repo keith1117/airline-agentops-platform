@@ -19,7 +19,7 @@ DB_CONFIG = {
     "db": os.getenv("MYSQL_DB", "Airline Ticket Reservation System"),
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
-    "autocommit": False,
+    "autocommit": True,
 }
 
 
@@ -308,7 +308,7 @@ def public_search():
     sql = (
         "SELECT airline_name, flight_number, departure_date_time, arrival_date_time, base_price, "
         "departure_airport, arrival_airport, status "
-        "FROM Flight WHERE departure_date_time >= NOW()"
+        "FROM Flight WHERE departure_date_time >= NOW() AND status != 'CANCELLED'"
     )
     args = []
     if dep:
@@ -500,7 +500,7 @@ def customer_search():
     date = request.form.get("date", "").strip()
     sql = (
         "SELECT airline_name, flight_number, departure_date_time, arrival_date_time, base_price, departure_airport, arrival_airport, status "
-        "FROM Flight WHERE departure_date_time >= NOW()"
+        "FROM Flight WHERE departure_date_time >= NOW() AND status != 'CANCELLED'"
     )
     args = []
     if dep: sql += " AND departure_airport=%s"; args.append(dep)

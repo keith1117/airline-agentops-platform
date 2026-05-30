@@ -12,6 +12,17 @@ def test_public_and_auth_templates_render():
         assert "<form" in html or "Book smarter flights" in html
 
 
+def test_homepage_uses_single_navigation_path_and_current_acceptance_copy():
+    html = render_template("index.html")
+
+    assert "Start Demo" not in html
+    assert "Create Customer" not in html
+    assert "34 passed" in html
+    assert "Agent guardrails" in html
+    assert 'value="SFO"' not in html
+    assert 'value="LAX"' not in html
+
+
 def test_customer_templates_render():
     flight = {
         "ticket_ID": 1,
@@ -101,5 +112,6 @@ def test_agent_templates_render_structured_messages():
 
     assert "agent-table" in customer
     assert "citation-pill" in customer
+    assert "Tool calls" not in customer
     assert "agent-table" in staff
     assert "Tool calls" in staff

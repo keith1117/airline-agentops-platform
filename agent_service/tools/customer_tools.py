@@ -49,6 +49,7 @@ def search_flights(
          AND t.flight_number=f.flight_number
          AND t.departure_date_time=f.departure_date_time
         WHERE f.departure_date_time >= NOW()
+          AND f.status != 'CANCELLED'
     """
     args = []
     if departure_airport:
