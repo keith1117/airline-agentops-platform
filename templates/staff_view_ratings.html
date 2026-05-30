@@ -1,0 +1,44 @@
+{% extends 'layout.html' %}
+{% block title %}Flight Ratings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Ratings</h1>
+    <p class="muted">Review flight ratings and customer comments.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="card">
+  <h2>Ratings Summary</h2>
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Flight</th><th>Departure</th><th>Avg</th><th>Reviews</th></tr></thead>
+      <tbody>
+        {% for s in summary %}
+        <tr><td>{{ s.flight_number }}</td><td>{{ s.departure_date_time }}</td><td>{{ '%.2f'|format(s.avg_rating or 0) }}</td><td>{{ s.cnt }}</td></tr>
+        {% else %}
+        <tr><td colspan="4">No ratings yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card" style="margin-top:18px">
+  <h2>All Comments</h2>
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Flight</th><th>Departure</th><th>Rating</th><th>Comment</th><th>When</th></tr></thead>
+      <tbody>
+        {% for c in comments %}
+        <tr><td>{{ c.customer_email }}</td><td>{{ c.flight_number }}</td><td>{{ c.departure_date_time }}</td><td>{{ c.rating }}</td><td>{{ c.comment|e }}</td><td>{{ c.created_at }}</td></tr>
+        {% else %}
+        <tr><td colspan="6">No comments yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

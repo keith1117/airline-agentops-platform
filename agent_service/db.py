@@ -1,0 +1,91 @@
+import time
+
+import pymysql
+from pymysql.cursors import DictCursor
+
+from .config import settings
+
+
+def get_conn():
+    return pymysql.connect(
+        host=settings.mysql_host,
+        port=settings.mysql_port,
+        user=settings.mysql_user,
+        password=settings.mysql_password,
+        db=settings.mysql_db,
+        charset="utf8mb4",
+        cursorclass=DictCursor,
+        autocommit=False,
+    )
+
+
+def ensure_agent_schema(retries: int = 60, delay_seconds: float = 1.0) -> None:
+    ddl = [
+        """
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            id VARCHAR(80) PRIMARY KEY,
+            role VARCHAR(20) NOT NULL,
+            principal VARCHAR(120) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS agent_traces (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            session_id VARCHAR(80) NOT NULL,
+            role VARCHAR(20) NOT NULL,
+            principal VARCHAR(120) NOT NULL,
+            user_message TEXT NOT NULL,
+            reasoning TEXT,
+            tool_calls TEXT,
+            final_answer TEXT,
+            latency_ms INT,
+            error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS booking_intents (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_email VARCHAR(100) NOT NULL,
+            airline_name VARCHAR(100) NOT NULL,
+            flight_number VARCHAR(10) NOT NULL,
+            departure_date_time TIMESTAMP NOT NULL,
+            status VARCHAR(40) NOT NULL DEFAULT 'PENDING_CONFIRMATION',
+            idempotency_key VARCHAR(80),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            confirmed_at TIMESTAMP NULL,
+            ticket_id INT NULL,
+            UNIQUE KEY uniq_booking_intent_idempotency (customer_email, idempotency_key)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            customer_email VARCHAR(100) PRIMARY KEY,
+            departure_city VARCHAR(100),
+            destination_city VARCHAR(100),
+            max_budget DECIMAL(10, 2),
+            preferred_airline VARCHAR(100),
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+        """,
+    ]
+    last_error = None
+    for attempt in range(retries):
+        try:
+            conn = get_conn()
+            try:
+                with conn.cursor() as cur:
+                    for stmt in ddl:
+                        cur.execute(stmt)
+                conn.commit()
+                return
+            finally:
+                conn.close()
+        except Exception as exc:
+            last_error = exc
+            if attempt == retries - 1:
+                break
+            time.sleep(delay_seconds)
+    raise last_error

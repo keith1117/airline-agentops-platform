@@ -1,0 +1,13 @@
+.git/
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+.env
+eval/sft_ready_traces.jsonl
+demo_screenshots/
+*.log
+

@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Air Tickets{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+</head>
+<body>
+  <div class="site-shell">
+    <nav class="site-nav">
+      <a class="brand-mark" href="{{ url_for('index') }}">Airline <span>AgentOps</span></a>
+      <div class="nav-links">
+        <a href="{{ url_for('index') }}">Home</a>
+        {% if session.get('role') == 'customer' %}
+          <a href="{{ url_for('customer_home') }}">My Flights</a>
+          <a href="{{ url_for('customer_agent') }}">AI Agent</a>
+          <a href="{{ url_for('customer_search') }}">Search</a>
+          <a href="{{ url_for('customer_reviews') }}">My Reviews</a>
+          <a class="nav-logout" href="{{ url_for('logout') }}">Logout</a>
+        {% elif session.get('role') == 'staff' %}
+          <a href="{{ url_for('staff_home') }}">Staff</a>
+          <a href="{{ url_for('staff_copilot') }}">AI Copilot</a>
+          <a href="{{ url_for('staff_create_flight') }}">Create Flight</a>
+          <a href="{{ url_for('staff_change_status') }}">Change Status</a>
+          <a href="{{ url_for('staff_add_airplane') }}">Add Airplane</a>
+          <a href="{{ url_for('staff_ratings') }}">Ratings</a>
+          <a href="{{ url_for('staff_reports') }}">Reports</a>
+          <a class="nav-logout" href="{{ url_for('logout') }}">Logout</a>
+        {% else %}
+          <a href="{{ url_for('login') }}">Sign In</a>
+          <a href="{{ url_for('register_staff') }}">Staff</a>
+          <a class="btn" href="{{ url_for('register_customer') }}">Sign Up</a>
+        {% endif %}
+      </div>
+    </nav>
+
+    <main class="page-wrap">
+      {% with messages=get_flashed_messages() %}
+        {% if messages %}<ul class="flash">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

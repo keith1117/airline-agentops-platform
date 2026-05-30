@@ -1,0 +1,23 @@
+{% extends 'layout.html' %}
+{% block title %}Register Staff{% endblock %}
+{% block content %}
+<section class="auth-page">
+  <div class="auth-card card">
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Staff registration</h1>
+    <p class="muted">Create a staff account for operational dashboards and the AI Copilot.</p>
+    <form method="POST">
+      <label>Username
+        <input name="username" required>
+      </label>
+      <label>Works For Airline
+        <input name="airline" required placeholder="United">
+      </label>
+      <label>Password
+        <input name="password" type="password" required>
+      </label>
+      <button type="submit">Register</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,90 @@
+{% extends 'layout.html' %}
+{% block title %}Staff AI Copilot{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">AgentOps Copilot</p>
+    <h1 class="page-title">Staff Operations Copilot</h1>
+    <p class="muted">Ask for sales, review, load-factor, or route analysis for {{ airline }}.</p>
+  </div>
+</div>
+
+<div class="agent-layout">
+<section class="agent-panel card">
+  <div class="agent-messages">
+    {% for m in messages %}
+      <div class="agent-message {{ m.role }}">
+        <div class="agent-role">{{ m.role|title }}</div>
+        <pre>{{ m.display_content }}</pre>
+        {% if m.table %}
+          <div class="agent-table-wrap">
+            <div class="agent-table-title">{{ m.table.title }}{% if m.table.total > m.table.rows|length %} · showing {{ m.table.rows|length }} of {{ m.table.total }}{% endif %}</div>
+            <table class="agent-table">
+              <thead>
+                <tr>
+                  {% for col in m.table.columns %}
+                    <th>{{ col.label }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in m.table.rows %}
+                  <tr>
+                    {% for col in m.table.columns %}
+                      <td>{{ row[col.key] }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+        {% if m.tool_summaries %}
+          <details class="agent-details">
+            <summary>Tool calls</summary>
+            <ul class="tool-list">
+              {% for call in m.tool_summaries %}
+                <li>
+                  <span class="tool-name">{{ call.label }}</span>
+                  {% if call.count is not none %}<span class="tool-count">{{ call.count }} result{{ 's' if call.count != 1 else '' }}</span>{% endif %}
+                  {% if call.args %}
+                    <span class="tool-args">
+                      {% for key, value in call.args.items() %}
+                        {{ key }}={{ value }}{% if not loop.last %}, {% endif %}
+                      {% endfor %}
+                    </span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        {% if m.meta.citations %}
+          <div class="citation-list" aria-label="Citations">
+            {% for c in m.meta.citations %}
+              <span class="citation-pill">{{ c.section }} · {{ c.chunk_id }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <form method="post" class="agent-input">
+    <textarea name="message" rows="3" placeholder="Which flights have the worst reviews?"></textarea>
+    <button type="submit">Send</button>
+  </form>
+</section>
+
+<aside class="demo-panel card">
+  <h3>Demo prompts</h3>
+  <ul>
+    <li>Show me the sales report for the last year</li>
+    <li>Which flights have the worst reviews?</li>
+    <li>Which flights are close to full?</li>
+    <li>What are the most popular routes?</li>
+  </ul>
+  <p class="muted">Agent service: {{ agent_url }}</p>
+</aside>
+</div>
+{% endblock %}

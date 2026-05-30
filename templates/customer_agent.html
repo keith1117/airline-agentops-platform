@@ -1,0 +1,101 @@
+{% extends 'layout.html' %}
+{% block title %}Customer AI Agent{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">AI Booking Assistant</p>
+    <h1 class="page-title">Customer Booking Agent</h1>
+    <p class="muted">Search flights, ask cited policy questions, and confirm mock bookings.</p>
+  </div>
+</div>
+
+<div class="agent-layout">
+<section class="agent-panel card">
+  <div class="agent-messages">
+    {% for m in messages %}
+      <div class="agent-message {{ m.role }}">
+        <div class="agent-role">{{ m.role|title }}</div>
+        <pre>{{ m.display_content }}</pre>
+        {% if m.table %}
+          <div class="agent-table-wrap">
+            <div class="agent-table-title">{{ m.table.title }}{% if m.table.total > m.table.rows|length %} · showing {{ m.table.rows|length }} of {{ m.table.total }}{% endif %}</div>
+            <table class="agent-table">
+              <thead>
+                <tr>
+                  {% for col in m.table.columns %}
+                    <th>{{ col.label }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in m.table.rows %}
+                  <tr>
+                    {% for col in m.table.columns %}
+                      <td>{{ row[col.key] }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+        {% if m.tool_summaries %}
+          <details class="agent-details">
+            <summary>Tool calls</summary>
+            <ul class="tool-list">
+              {% for call in m.tool_summaries %}
+                <li>
+                  <span class="tool-name">{{ call.label }}</span>
+                  {% if call.count is not none %}<span class="tool-count">{{ call.count }} result{{ 's' if call.count != 1 else '' }}</span>{% endif %}
+                  {% if call.args %}
+                    <span class="tool-args">
+                      {% for key, value in call.args.items() %}
+                        {{ key }}={{ value }}{% if not loop.last %}, {% endif %}
+                      {% endfor %}
+                    </span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        {% if m.meta.citations %}
+          <div class="citation-list" aria-label="Citations">
+            {% for c in m.meta.citations %}
+              <span class="citation-pill">{{ c.section }} · {{ c.chunk_id }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if m.meta.pending_confirmation %}
+          <form method="post" action="{{ url_for('customer_agent_confirm') }}" class="inline-form confirm-panel">
+            <input type="hidden" name="booking_intent_id" value="{{ m.meta.pending_confirmation.booking_intent_id }}">
+            <input type="hidden" name="idempotency_key" value="{{ m.meta.pending_confirmation.idempotency_key }}">
+            <div>
+              <strong>Confirmation required</strong>
+              <span>Mock payment only. No real ticket purchase will be made.</span>
+            </div>
+            <button type="submit">Confirm Mock Booking</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  <form method="post" class="agent-input">
+    <textarea name="message" rows="3" placeholder="Find flights from SFO to LAX next month"></textarea>
+    <button type="submit">Send</button>
+  </form>
+</section>
+
+<aside class="demo-panel card">
+  <h3>Demo prompts</h3>
+  <ul>
+    <li>Find flights from SFO to LAX next month</li>
+    <li>Can I get a refund if my flight is cancelled?</li>
+    <li>Show my tickets and trips</li>
+    <li>Book United flight P0206 at 2026-06-08 09:30:00</li>
+  </ul>
+  <p class="muted">Agent service: {{ agent_url }}</p>
+</aside>
+</div>
+{% endblock %}

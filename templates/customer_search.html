@@ -1,0 +1,72 @@
+{% extends 'layout.html' %}
+{% block title %}Search Flights{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Customer workspace</p>
+    <h1 class="page-title">Search Flights</h1>
+    <p class="muted">Search synthetic inventory and purchase through the existing mock booking flow.</p>
+  </div>
+  {% if session.get('role') == 'customer' %}
+    <a class="btn" href="{{ url_for('customer_agent') }}">Ask AI Agent</a>
+  {% endif %}
+</div>
+
+<section class="card">
+  <form method="POST" class="filters">
+    <div class="row">
+      <label>From
+        <input name="depart" value="{{ dep or '' }}" maxlength="3" style="text-transform:uppercase" placeholder="SFO">
+      </label>
+      <label>To
+        <input name="arrive" value="{{ arr or '' }}" maxlength="3" style="text-transform:uppercase" placeholder="LAX">
+      </label>
+      <label>Date
+        <input type="date" name="date" value="{{ date or '' }}">
+      </label>
+      <button>Search</button>
+    </div>
+  </form>
+</section>
+
+<section class="card" style="margin-top:18px">
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Flight</th><th>Route</th><th>Departure</th><th>Arrival</th><th>Price</th><th>Status</th>
+          {% if session.get('role')=='customer' %}<th>Buy</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in rows %}
+        <tr>
+          <td><strong>{{ f.airline_name }} {{ f.flight_number }}</strong></td>
+          <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span></td>
+          <td>{{ f.departure_date_time }}</td>
+          <td>{{ f.arrival_date_time }}</td>
+          <td class="price-text">${{ '%.2f'|format(f.base_price) }}</td>
+          <td><span class="status-chip">{{ f.status }}</span></td>
+          {% if session.get('role')=='customer' %}
+          <td>
+            <form method="POST" action="{{ url_for('customer_purchase') }}" class="form-grid">
+              <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
+              <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
+              <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
+              <input name="name_on_card" placeholder="Name on Card" required>
+              <select name="card_type"><option>Credit</option><option>Debit</option></select>
+              <input name="card_number" placeholder="Card Number" required>
+              <input type="date" name="expiration_date" required>
+              <button>Buy</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="{% if session.get('role')=='customer' %}7{% else %}6{% endif %}">No matching flights yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

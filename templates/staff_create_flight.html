@@ -1,0 +1,65 @@
+{% extends 'layout.html' %}
+{% block title %}Create Flight{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Create Flight</h1>
+    <p class="muted">Add new flights to the synthetic inventory.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="grid-2">
+  <div class="card">
+    <form method="POST" class="staff-form">
+      <div class="form-row">
+        <input name="flight_number" placeholder="Flight Number" required>
+        <input name="base_price" type="number" step="0.01" placeholder="Base Price" required>
+      </div>
+      <div class="form-row">
+        <label>Dep <input type="datetime-local" name="departure_date_time" required></label>
+        <label>Arr <input type="datetime-local" name="arrival_date_time" required></label>
+      </div>
+      <div class="form-row">
+        <input name="departure_airport" maxlength="3" placeholder="From (IATA)" required>
+        <input name="arrival_airport" maxlength="3" placeholder="To (IATA)" required>
+      </div>
+      <div class="form-row">
+        <input name="airplane_id_number" placeholder="Plane ID" required>
+        <select name="status"><option>ON_TIME</option><option>DELAYED</option><option>CANCELLED</option></select>
+      </div>
+      <button>Create</button>
+    </form>
+  </div>
+  <div class="preview-card">
+    <p class="page-kicker">Preview</p>
+    <h2>New route inventory</h2>
+    <p class="muted">Created flights become searchable by customers and the AI Agent after insertion.</p>
+  </div>
+</section>
+
+<section class="card" style="margin-top:18px">
+  <h2>Next 30 Days Flights</h2>
+  {% if rows and rows|length %}
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Flight</th><th>Route</th><th>Departure</th><th>Arrival</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.flight_number }}</td>
+          <td><span class="route-line">{{ r.departure_airport }} <span>→</span> {{ r.arrival_airport }}</span></td>
+          <td>{{ r.departure_date_time }}</td>
+          <td>{{ r.arrival_date_time }}</td>
+          <td><span class="status-chip">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No flights in the next 30 days.</p>
+  {% endif %}
+</section>
+{% endblock %}

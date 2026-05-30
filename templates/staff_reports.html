@@ -1,0 +1,50 @@
+{% extends 'layout.html' %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Reports</h1>
+    <p class="muted">Monitor ticket sales across flexible reporting windows.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="grid-3">
+  <form method="POST" class="card form-grid">
+    <input type="hidden" name="mode" value="range">
+    <strong>Custom range</strong>
+    <label>Start <input type="date" name="start"></label>
+    <label>End <input type="date" name="end"></label>
+    <button>Run</button>
+  </form>
+  <form method="POST" class="card form-grid">
+    <input type="hidden" name="mode" value="last_month">
+    <strong>Last month</strong>
+    <p class="muted">Summarize recent ticket sales.</p>
+    <button>Run Last Month</button>
+  </form>
+  <form method="POST" class="card form-grid">
+    <input type="hidden" name="mode" value="last_year">
+    <strong>Last year</strong>
+    <p class="muted">Summarize monthly sales over the past year.</p>
+    <button>Run Last Year</button>
+  </form>
+</section>
+
+{% if rows %}
+  <section class="card" style="margin-top:18px">
+    <h2>Result</h2>
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Period</th><th>Tickets</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+            <tr><td>{{ r.day or r.ym }}</td><td>{{ r.tickets }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

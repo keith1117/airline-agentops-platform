@@ -1,0 +1,28 @@
+{% extends 'layout.html' %}
+{% block title %}Change Status{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Change Flight Status</h1>
+    <p class="muted">Update operational status for a flight in the current airline inventory.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="grid-2">
+  <div class="card">
+    <form method="POST" class="staff-form">
+      <input name="flight_number" placeholder="Flight Number" required>
+      <input name="departure_date_time" placeholder="YYYY-MM-DD HH:MM:SS" required>
+      <select name="status"><option>ON_TIME</option><option>DELAYED</option><option>CANCELLED</option></select>
+      <button>Update</button>
+    </form>
+  </div>
+  <div class="preview-card">
+    <p class="page-kicker">Status policy</p>
+    <h2>Operational changes affect search and Agent answers.</h2>
+    <p class="muted">Cancelled flights cannot be booked through the mock confirmation flow.</p>
+  </div>
+</section>
+{% endblock %}

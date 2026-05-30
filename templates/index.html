@@ -1,0 +1,80 @@
+{% extends 'layout.html' %}
+{% block title %}Airline AgentOps Platform{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-overlay">
+    <p class="page-kicker">Production-like AI Agent MVP</p>
+    <h1>Book smarter flights with AI assistance.</h1>
+    <p class="hero-copy">Search synthetic airline inventory, ask cited policy questions, and confirm mock bookings through a controlled Agent workflow.</p>
+    <div class="hero-actions">
+      <a class="btn" href="{{ url_for('login') }}">Start Demo</a>
+      <a class="btn btn-secondary" href="{{ url_for('register_customer') }}">Create Customer</a>
+    </div>
+  </div>
+  <div class="hero-search card">
+    <div class="search-tab">Flights</div>
+    <form method="POST" action="{{ url_for('public_search') }}" class="search-grid">
+      <div>
+        <span>From</span>
+        <input name="depart" maxlength="3" value="{{ dep or 'SFO' }}" required>
+      </div>
+      <div>
+        <span>To</span>
+        <input name="arrive" maxlength="3" value="{{ arr or 'LAX' }}" required>
+      </div>
+      <div>
+        <span>Date</span>
+        <input type="date" name="date" value="{{ date or '' }}" required>
+      </div>
+      <button type="submit">Search Flights</button>
+    </form>
+  </div>
+</section>
+
+<section class="grid-3 landing-stats">
+  <div class="card">
+    <span>Agent Tools</span>
+    <strong>9</strong>
+    <p>Role-guarded tool calls for customer and staff workflows.</p>
+  </div>
+  <div class="card">
+    <span>Eval Cases</span>
+    <strong>20</strong>
+    <p>Deterministic checks for tool accuracy, citations, and task success.</p>
+  </div>
+  <div class="card">
+    <span>Acceptance</span>
+    <strong>18 passed</strong>
+    <p>P0/P1 tested against MySQL and Docker Compose.</p>
+  </div>
+</section>
+
+{% if rows %}
+  <section class="card" style="margin-top:18px">
+    <h2>Outbound flights</h2>
+    <div class="data-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Airline</th><th>Flight</th><th>Departure</th><th>Arrival</th><th>From</th><th>To</th><th>Price</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in rows %}
+          <tr>
+            <td>{{ f.airline_name }}</td>
+            <td>{{ f.flight_number }}</td>
+            <td>{{ f.departure_date_time }}</td>
+            <td>{{ f.arrival_date_time }}</td>
+            <td>{{ f.departure_airport }}</td>
+            <td>{{ f.arrival_airport }}</td>
+            <td>${{ '%.2f'|format(f.base_price) }}</td>
+            <td><span class="status-chip">{{ f.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endif %}
+{% endblock %}

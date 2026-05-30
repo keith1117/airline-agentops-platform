@@ -1,0 +1,52 @@
+{% extends 'layout.html' %}
+{% block title %}My Flights{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Customer workspace</p>
+    <h1 class="page-title">My Flights</h1>
+    <p class="muted">Track upcoming trips, review flights, and continue through the AI Agent.</p>
+  </div>
+  <a class="btn" href="{{ url_for('customer_agent') }}">Open AI Agent</a>
+</div>
+
+<section class="metric-grid">
+  <div class="card metric-card"><span>Traveler</span><strong>{{ name }}</strong></div>
+  <div class="card metric-card"><span>Tickets</span><strong>{{ flights|length }}</strong></div>
+  <div class="card metric-card"><span>Agent</span><strong>Ready</strong></div>
+  <div class="card metric-card"><span>Payment</span><strong>Mock</strong></div>
+</section>
+
+<section class="card">
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Ticket</th><th>Route</th><th>Departure</th><th>Airline</th><th>Status</th><th>Review</th></tr>
+      </thead>
+      <tbody>
+        {% for f in flights %}
+        <tr>
+          <td>#{{ f.ticket_ID }}</td>
+          <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span><small>{{ f.flight_number }}</small></td>
+          <td>{{ f.departure_date_time }}</td>
+          <td>{{ f.airline_name }}</td>
+          <td><span class="status-chip">{{ f.status }}</span></td>
+          <td>
+            <form method="POST" action="{{ url_for('save_review') }}" class="form-row">
+              <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
+              <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
+              <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
+              <select name="rating"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option></select>
+              <input name="comment" placeholder="comment">
+              <button>Save</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No flights yet. Search or ask the AI Agent to find one.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

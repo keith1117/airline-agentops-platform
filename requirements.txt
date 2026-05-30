@@ -1,0 +1,8 @@
+Flask
+PyMySQL
+python-dotenv
+fastapi
+uvicorn
+pydantic
+requests
+pytest

@@ -1,0 +1,30 @@
+{% extends 'layout.html' %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<section class="auth-page">
+  <div class="auth-card card">
+    <p class="page-kicker">Welcome back</p>
+    <h1 class="page-title">Sign in</h1>
+    <p class="muted">Access customer booking tools or staff operations.</p>
+    <form method="POST">
+      <label>Role
+        <select name="role" required>
+          <option value="customer">Customer</option>
+          <option value="staff">Airline Staff</option>
+        </select>
+      </label>
+      <label>Username
+        <input name="username" required placeholder="email for customer">
+      </label>
+      <label>Password
+        <input name="password" type="password" required>
+      </label>
+      <button type="submit">Sign In</button>
+    </form>
+    <div class="auth-links">
+      <a href="{{ url_for('register_customer') }}">Create customer account</a>
+      <a href="{{ url_for('register_staff') }}">Register staff</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

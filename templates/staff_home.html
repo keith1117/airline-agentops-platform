@@ -1,0 +1,63 @@
+{% extends 'layout.html' %}
+{% block title %}Staff Dashboard{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Staff Dashboard</h1>
+    <p class="muted">Monitor scheduled flights and operational status.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="card">
+  <form method="get" class="filters">
+    <div class="row r1">
+      <strong>Period</strong>
+      <label><input type="radio" name="period" value="" {% if not filters.period %}checked{% endif %}> Default</label>
+      <label><input type="radio" name="period" value="current" {% if filters.period=='current' %}checked{% endif %}> Current</label>
+      <label><input type="radio" name="period" value="future" {% if filters.period=='future' %}checked{% endif %}> Future</label>
+      <label><input type="radio" name="period" value="past" {% if filters.period=='past' %}checked{% endif %}> Past</label>
+    </div>
+    <div class="row r2">
+      <strong>Range</strong>
+      <label>Start <input type="date" name="start_date" value="{{ filters.start_date }}"></label>
+      <label>End <input type="date" name="end_date" value="{{ filters.end_date }}"></label>
+    </div>
+    <div class="row r3">
+      <label>From <input type="text" name="from_airport" maxlength="3" value="{{ filters.from_airport }}" style="text-transform:uppercase"></label>
+      <label>To <input type="text" name="to_airport" maxlength="3" value="{{ filters.to_airport }}" style="text-transform:uppercase"></label>
+      <label>From City <input type="text" name="from_city" value="{{ filters.from_city }}"></label>
+      <label>To City <input type="text" name="to_city" value="{{ filters.to_city }}"></label>
+    </div>
+    <div class="row actions">
+      <button type="submit">Apply</button>
+      <a class="btn btn-secondary" href="{{ url_for('staff_home') }}">Reset</a>
+    </div>
+  </form>
+</section>
+
+<section class="card" style="margin-top:18px">
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Flight</th><th>Route</th><th>Departure</th><th>Arrival</th><th>Status</th><th>Customers</th></tr>
+      </thead>
+      <tbody>
+        {% for f in rows %}
+        <tr>
+          <td><strong>{{ f.flight_number }}</strong></td>
+          <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span></td>
+          <td>{{ f.departure_date_time }}</td>
+          <td>{{ f.arrival_date_time }}</td>
+          <td><span class="status-chip">{{ f.status }}</span></td>
+          <td><a href="{{ url_for('staff_customers', flight_number=f.flight_number, departure_date_time=f.departure_date_time) }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No flights for the selected filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

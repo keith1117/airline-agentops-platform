@@ -1,0 +1,43 @@
+{% extends 'layout.html' %}
+{% block title %}My Reviews{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Customer workspace</p>
+    <h1 class="page-title">My Reviews</h1>
+    <p class="muted">Review history for flights purchased in the demo system.</p>
+  </div>
+  <a class="btn" href="{{ url_for('customer_home') }}">Back to Flights</a>
+</div>
+
+<section class="card">
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Flight</th><th>Departure</th><th>Rating</th><th>Comment</th><th>When</th><th>Delete</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><strong>{{ r.airline_name }} {{ r.flight_number }}</strong></td>
+          <td>{{ r.departure_date_time }}</td>
+          <td>{{ "★" * r.rating }}</td>
+          <td>{{ r.comment|e }}</td>
+          <td>{{ r.created_at }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('delete_review') }}">
+              <input type="hidden" name="airline_name" value="{{ r.airline_name }}">
+              <input type="hidden" name="flight_number" value="{{ r.flight_number }}">
+              <input type="hidden" name="departure_date_time" value="{{ r.departure_date_time }}">
+              <button>Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No reviews yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

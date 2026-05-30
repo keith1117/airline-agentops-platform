@@ -1,0 +1,33 @@
+{% extends 'layout.html' %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Customers</h1>
+    <p class="muted">{{ airline }} flight {{ flight_number }} at {{ departure_date_time }}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_home') }}">Back to Dashboard</a>
+</div>
+
+<section class="card">
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Email</th><th>Card Type</th><th>Card Number</th><th>Name on Card</th></tr></thead>
+      <tbody>
+        {% for c in customers %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td>{{ c.email }}</td>
+          <td>{{ c.card_type }}</td>
+          <td>{{ c.card_number }}</td>
+          <td>{{ c.name_on_card }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No customers found for this flight.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

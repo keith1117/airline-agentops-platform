@@ -1,0 +1,23 @@
+{% extends 'layout.html' %}
+{% block title %}Register Customer{% endblock %}
+{% block content %}
+<section class="auth-page">
+  <div class="auth-card card">
+    <p class="page-kicker">Create account</p>
+    <h1 class="page-title">Customer registration</h1>
+    <p class="muted">Create a demo customer account for flight search and the booking Agent.</p>
+    <form method="POST">
+      <label>Email
+        <input name="email" type="email" required>
+      </label>
+      <label>Name
+        <input name="name">
+      </label>
+      <label>Password
+        <input name="password" type="password" required>
+      </label>
+      <button type="submit">Register</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

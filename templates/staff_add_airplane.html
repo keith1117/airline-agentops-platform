@@ -1,0 +1,29 @@
+{% extends 'layout.html' %}
+{% block title %}Add Airplane{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Airline operations</p>
+    <h1 class="page-title">Add Airplane</h1>
+    <p class="muted">Add aircraft capacity for {{ airline }}.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+<section class="grid-2">
+  <div class="card">
+    <form method="POST" class="staff-form">
+      <input name="id_number" placeholder="Plane ID" required>
+      <input name="seats" type="number" placeholder="Seat Count" required>
+      <input name="manufacturer" placeholder="Manufacturer">
+      <input name="age" type="number" placeholder="Age">
+      <button>Add</button>
+    </form>
+  </div>
+  <div class="preview-card">
+    <p class="page-kicker">Capacity</p>
+    <h2>Aircraft seats drive load factor reports.</h2>
+    <p class="muted">The Staff Copilot uses this capacity when summarizing close-to-full flights.</p>
+  </div>
+</section>
+{% endblock %}
