@@ -74,6 +74,29 @@ Customer-facing flight availability excludes cancelled flights. Cancelled invent
 
 The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
 
+## Docker Demo Path
+
+Start the full production-like demo stack with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Then open the demo endpoints:
+
+- Flask web app: `http://127.0.0.1:5050`
+- Agent health: `http://127.0.0.1:8001/health`
+
+The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the P0 demo flight is available.
+
+Docker Compose runtime has been verified locally with MySQL, the seed service, the FastAPI Agent service, and the Flask web app all running successfully.
+
+Current Docker config test result:
+
+```text
+2 passed
+```
+
 ## Run Locally
 
 Install dependencies:
@@ -203,27 +226,6 @@ P1 Docker config tests:
 
 ```bash
 python -m pytest tests/test_p1_docker_config.py -q
-```
-
-Docker Compose one-command stack:
-
-```bash
-docker compose up --build
-```
-
-Then open:
-
-- Flask web app: `http://127.0.0.1:5050`
-- Agent health: `http://127.0.0.1:8001/health`
-
-The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the P0 demo flight is available.
-
-Docker Compose runtime has been verified locally with MySQL, the seed service, the FastAPI Agent service, and the Flask web app all running successfully.
-
-Current Docker config test result:
-
-```text
-2 passed
 ```
 
 P2 Observability smoke:
