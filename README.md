@@ -451,7 +451,3 @@ P0 acceptance covers:
 - Payment is mocked with a non-real payment token.
 - This is a production-like MVP, not a real airline commerce platform.
 - Real SFT and Agentic RL training are not implemented. The project includes eval, trace export, and reward-signal design for future optimization.
-
-## Resume Line
-
-Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, intent guardrails, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, curated monthly demo data, and 36 passing P0/P1/P0.5/P2 tests.
