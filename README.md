@@ -14,7 +14,7 @@ P2 also includes a Locust smoke-test profile for small-scale load testing. The g
 
 P2 also includes a deterministic synthetic data generator. By default it generates local SQL for 24 airports, 10k flights, 2k customers, 50k tickets, and 5k reviews. It does not modify MySQL unless `--apply` is explicitly passed.
 
-The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
+The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
 
 It intentionally uses synthetic/demo airline inventory and mock payment. It does **not** connect to real airline inventory, real ticketing systems, or real payment processors.
 
@@ -190,7 +190,7 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified result:
 
 ```text
-34 passed
+36 passed
 ```
 
 P0.5 UI smoke result:
@@ -336,7 +336,7 @@ MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 MYSQL_USER=root MYSQL_PASSWORD=root MYSQL_D
 python -m scripts.seed_professional_demo --apply
 ```
 
-This smaller seed is intended for interview demos, not load testing. It adds 12 airports, 60 United flights, 20 demo customers, 90 tickets, and 45 reviews using high ticket IDs and `INSERT IGNORE`, so the stable P0 booking flow remains available. The large 10k-flight generator remains separate for benchmark experiments.
+This smaller seed is intended for interview demos, not load testing. It adds 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews using high ticket IDs and `INSERT IGNORE`, so the stable P0 booking flow remains available. Use `--refresh` when you intentionally want to replace the existing curated rows in Docker MySQL. The large 10k-flight generator remains separate for benchmark experiments.
 
 ## Benchmark / Results
 
@@ -344,7 +344,7 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `34 passed in 1.21s` |
+| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `36 passed in 1.35s` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
@@ -452,4 +452,4 @@ P0 acceptance covers:
 
 ## Resume Line
 
-Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, intent guardrails, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, curated demo data, and 34 passing P0/P1/P0.5/P2 tests.
+Built a production-like airline AgentOps MVP with Flask, FastAPI, MySQL, ReAct-style tool calling, RAG policy QA with citations, role-based tool guards, intent guardrails, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, pending booking confirmation, mock payment, Figma-inspired UI refresh, lightweight observability metrics, Locust smoke load testing, synthetic data generation, curated monthly demo data, and 36 passing P0/P1/P0.5/P2 tests.

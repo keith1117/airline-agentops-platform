@@ -33,5 +33,7 @@ def test_staff_out_of_scope_question_does_not_default_to_sales(monkeypatch):
     resp = agent.staff_chat("guard-staff-weather", "admin", "United", "what is the weather tomorrow?")
 
     assert resp["tool_calls"] == []
-    assert "airline operations" in resp["answer"].lower()
+    assert "i can only help with airline operations" in resp["answer"].lower()
+    assert "i can't answer" in resp["answer"].lower()
+    assert "tools" not in resp["answer"].lower()
     assert not resp["answer"].lower().startswith("sales report:")

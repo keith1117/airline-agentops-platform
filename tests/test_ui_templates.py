@@ -17,7 +17,7 @@ def test_homepage_uses_single_navigation_path_and_current_acceptance_copy():
 
     assert "Start Demo" not in html
     assert "Create Customer" not in html
-    assert "34 passed" in html
+    assert "36 passed" in html
     assert "Agent guardrails" in html
     assert 'value="SFO"' not in html
     assert 'value="LAX"' not in html

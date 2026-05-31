@@ -292,15 +292,15 @@ class ReActAgent:
     @staticmethod
     def _customer_scope_fallback() -> str:
         return (
-            "I can help with airline workflows: flight search, your trips, airline policy questions, "
-            "travel preferences, and pending mock bookings. I will not call tools for unrelated requests."
+            "I can only help with airline booking tasks, including flight search, your trips, airline policy questions, "
+            "travel preferences, and pending mock bookings. I can't answer that request from this airline system."
         )
 
     @staticmethod
     def _staff_scope_fallback() -> str:
         return (
-            "I can help with airline operations: sales reports, review analysis, load-factor checks, "
-            "route performance, and policy questions. I will not call tools for unrelated requests."
+            "I can only help with airline operations, including sales reports, review analysis, load-factor checks, "
+            "route performance, and policy questions. I can't answer that request from this airline operations workspace."
         )
 
     @staticmethod
