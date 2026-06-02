@@ -2,7 +2,7 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1/P2 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, pending booking confirmation, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, ReAct-style trajectory export, Docker Compose, observability, and acceptance tests.
+This project demonstrates a stable **P0/P1/P2/P3.1 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, pending booking confirmation, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style booking preparation, trajectory export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
@@ -15,6 +15,8 @@ P2 also includes a Locust smoke-test profile for small-scale load testing. The g
 P2 also includes a deterministic synthetic data generator. By default it generates local SQL for 24 airports, 10k flights, 2k customers, 50k tickets, and 5k reviews. It does not modify MySQL unless `--apply` is explicitly passed.
 
 The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
+
+P3.1 adds a bounded ReAct-style booking-preparation runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, create a pending booking intent, and stop for human confirmation. It remains bounded by `MAX_AGENT_STEPS`, role-based tools, and human-confirmed transaction guards.
 
 The Agent service is now **AI-first but fallback-safe**. When model credentials are configured, it can prioritize OpenAI native tool calling for tool selection, fall back to JSON structured routing, and use embedding-based grounded RAG for policy questions. Without credentials, or if an external model call fails in `auto` mode, it falls back to deterministic routing, keyword retrieval, and extractive policy answers while recording the fallback reason.
 
@@ -153,6 +155,12 @@ Start the full production-like demo stack with Docker Compose:
 docker compose up --build
 ```
 
+To explicitly demo the P3.1 bounded booking-preparation runtime in Docker:
+
+```bash
+AGENT_RUNTIME_MODE=bounded_react MAX_AGENT_STEPS=4 docker compose up --build
+```
+
 Then open the demo endpoints:
 
 - Flask web app: `http://127.0.0.1:5050`
@@ -221,6 +229,12 @@ Fast tests without MySQL acceptance:
 
 ```bash
 python -m pytest tests -q
+```
+
+Current local fast result:
+
+```text
+52 passed, 17 skipped
 ```
 
 P0 acceptance tests with local MySQL:
@@ -296,10 +310,22 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
   python -m pytest tests -q
 ```
 
-Current verified result:
+Current verified Docker MySQL result:
 
 ```text
-59 passed
+69 passed
+```
+
+P3.1 bounded runtime tests:
+
+```bash
+python -m pytest tests/test_p3_bounded_react.py -q
+```
+
+Current P3.1 result:
+
+```text
+9 passed
 ```
 
 P0.5 UI smoke result:
@@ -432,7 +458,9 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `59 passed in 1.20s` |
+| Local fast regression suite | `python -m pytest tests -q` | `52 passed, 17 skipped in 0.55s` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `69 passed in 23.32s` |
+| P3.1 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `9 passed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |

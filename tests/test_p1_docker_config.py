@@ -12,6 +12,8 @@ def test_compose_has_p0_demo_seed_and_healthcheck():
     assert 'MYSQL_DB: "Airline Ticket Reservation System"' in compose
     assert "AGENT_SERVICE_URL: http://agent:8001" in compose
     assert "AGENT_ROUTER_MODE: ${AGENT_ROUTER_MODE:-auto}" in compose
+    assert "AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-single_step}" in compose
+    assert "MAX_AGENT_STEPS: ${MAX_AGENT_STEPS:-4}" in compose
     assert "RAG_RETRIEVER_MODE: ${RAG_RETRIEVER_MODE:-auto}" in compose
     assert "POLICY_ANSWER_MODE: ${POLICY_ANSWER_MODE:-auto}" in compose
     assert "LLM_API_KEY: ${LLM_API_KEY:-}" in compose

@@ -42,6 +42,7 @@ def test_embedding_config_inherits_final_resolved_llm_config(monkeypatch):
 def test_default_modes_are_ai_first_auto_with_relevance_gate(monkeypatch):
     monkeypatch.delenv("AGENT_ROUTER_MODE", raising=False)
     monkeypatch.delenv("TOOL_ROUTER_MODE", raising=False)
+    monkeypatch.delenv("AGENT_RUNTIME_MODE", raising=False)
     monkeypatch.delenv("RAG_RETRIEVER_MODE", raising=False)
     monkeypatch.delenv("POLICY_ANSWER_MODE", raising=False)
 

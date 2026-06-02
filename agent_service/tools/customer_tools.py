@@ -31,6 +31,7 @@ def search_flights(
     departure_airport: Optional[str] = None,
     arrival_airport: Optional[str] = None,
     airline_name: Optional[str] = None,
+    flight_number: Optional[str] = None,
     travel_date: Optional[str] = None,
     period: Optional[str] = None,
     max_price: Optional[float] = None,
@@ -65,6 +66,9 @@ def search_flights(
     if airline_name:
         sql += " AND f.airline_name=%s"
         args.append(airline_name)
+    if flight_number:
+        sql += " AND f.flight_number=%s"
+        args.append(flight_number.upper())
     if travel_date:
         sql += " AND DATE(f.departure_date_time)=%s"
         args.append(travel_date)

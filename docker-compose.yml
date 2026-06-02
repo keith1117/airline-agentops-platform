@@ -29,6 +29,8 @@ services:
       MYSQL_DB: "Airline Ticket Reservation System"
       RAG_POLICY_PATH: docs/policies/airline_policy.md
       AGENT_ROUTER_MODE: ${AGENT_ROUTER_MODE:-auto}
+      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-single_step}
+      MAX_AGENT_STEPS: ${MAX_AGENT_STEPS:-4}
       TOOL_ROUTER_MODE: ${TOOL_ROUTER_MODE:-auto}
       RAG_RETRIEVER_MODE: ${RAG_RETRIEVER_MODE:-auto}
       POLICY_ANSWER_MODE: ${POLICY_ANSWER_MODE:-auto}

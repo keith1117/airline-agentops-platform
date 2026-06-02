@@ -96,6 +96,50 @@ def test_bounded_react_booking_preparation_searches_then_creates_pending_intent(
     assert all(step["type"] != "reasoning_summary" for step in resp["execution"]["trajectory"])
 
 
+def test_bounded_react_explicit_flight_number_uses_flight_filter_and_creates_intent(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            assert kwargs["flight_number"] == "SYN00058"
+            assert kwargs["travel_date"] == "2026-07-23"
+            return {
+                "count": 1,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "SYN00058",
+                        "departure_airport": "LAS",
+                        "arrival_airport": "LAX",
+                        "departure_date_time": "2026-07-23 16:00:00",
+                        "arrival_date_time": "2026-07-24 02:45:00",
+                        "base_price": 97.23,
+                        "seats_left": 179,
+                        "status": "ON_TIME",
+                    }
+                ],
+            }
+        if tool_name == "create_booking_intent":
+            return {"booking_intent_id": 58, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-58", **kwargs}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "bounded-explicit-flight",
+        "testcustomer@nyu.edu",
+        "purchase flight of SYN00058 on 2026-07-23",
+    )
+
+    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
+    assert calls[1][1]["flight_number"] == "SYN00058"
+    assert calls[1][1]["departure_date_time"] == "2026-07-23 16:00:00"
+    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+
+
 def test_bounded_react_no_flights_does_not_create_booking_intent(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
@@ -130,6 +174,43 @@ def test_bounded_react_blocks_human_confirmed_tools(monkeypatch):
     assert not any(call["name"] == "cancel_customer_ticket" for call in resp["tool_calls"])
     assert resp["execution"]["stop_reason"] == "human_confirmed_tool_blocked"
     assert "outside this bounded booking-preparation loop" in resp["answer"]
+
+
+def test_booking_this_one_uses_recent_single_flight_result(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        agent,
+        "_recent_search_flights",
+        lambda session_id: [
+            {
+                "airline_name": "United",
+                "flight_number": "SYN00058",
+                "departure_airport": "LAS",
+                "arrival_airport": "LAX",
+                "departure_date_time": "2026-07-23 16:00:00",
+                "arrival_date_time": "2026-07-24 02:45:00",
+                "base_price": 97.23,
+                "seats_left": 179,
+                "status": "ON_TIME",
+            }
+        ],
+    )
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "create_booking_intent":
+            return {"booking_intent_id": 58, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-58", **kwargs}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat("bounded-book-this-one", "testcustomer@nyu.edu", "book this one")
+
+    assert [name for name, _ in calls] == ["create_booking_intent"]
+    assert calls[0][1]["flight_number"] == "SYN00058"
+    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
 
 
 def test_bounded_react_respects_max_agent_steps(monkeypatch):
