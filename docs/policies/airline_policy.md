@@ -1,20 +1,19 @@
-# Airline AgentOps Policy Knowledge Base
+# Airline Policy Knowledge Base
 
 ## Baggage Policy
-Each passenger may bring one carry-on bag and one personal item in the mock booking environment. Checked baggage rules depend on airline policy and ticket class. The demo system does not calculate real baggage fees.
+Each passenger may bring one carry-on bag and one personal item. Checked baggage eligibility and fees depend on airline rules, route, and ticket class. If baggage details are not shown in the booking record, the customer should contact airline staff before departure.
 
 ## Refund Policy
-Refund eligibility depends on flight status and ticket rules. For this production-like MVP, a ticket can be treated as refundable in the demo only when the flight is cancelled by the airline. Voluntary refunds are not automatically approved by the agent.
+If a flight is cancelled by the airline, the ticket is eligible for refund review without a cancellation fee. If a customer voluntarily cancels a trip while the flight is on time, the standard voluntary cancellation fee is high and the estimated refund is reduced. If a customer voluntarily cancels a delayed flight before departure, the cancellation fee is reduced and the estimated refund is higher. The assistant should check the customer's ticket and current flight status when enough booking details are provided.
 
 ## Delay Policy
-If a flight is delayed, the agent may explain the current flight status and direct the customer to staff support. The demo system does not issue real compensation, vouchers, or payment refunds.
+If a flight is delayed, the customer should review the current flight status and contact airline staff for available service options. Delay handling may depend on the length of the delay, route, and airline operating rules.
 
 ## Booking Confirmation Policy
-The customer agent cannot directly issue a ticket from a natural-language request. It must first create a PENDING_CONFIRMATION booking intent. A ticket is written to the database only after the customer explicitly confirms the booking.
+The customer assistant may create a pending booking request only after identifying a specific bookable flight. A ticket is issued only after the customer explicitly confirms the pending booking.
 
-## Mock Payment Policy
-The project never connects to a real payment processor. Confirmed agent bookings use a mock payment token and are intended only for engineering demonstration, testing, and evaluation.
+## Payment Policy
+The system records payment details only for confirmed bookings. The assistant may answer informational questions about payment rules, but payment processing and ticket issuance must follow the booking confirmation flow.
 
 ## Agent Safety Policy
-Agents must use registered tools for database-backed actions. The LLM is not allowed to execute raw SQL. Staff-only analytics tools cannot be called by customer sessions.
-
+Agents must use registered tools for database-backed actions. The language model is not allowed to execute raw SQL. Staff-only analytics tools cannot be called by customer sessions.

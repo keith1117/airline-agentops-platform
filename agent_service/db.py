@@ -70,6 +70,23 @@ def ensure_agent_schema(retries: int = 60, delay_seconds: float = 1.0) -> None:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS ticket_cancellations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            ticket_id INT NOT NULL,
+            customer_email VARCHAR(100) NOT NULL,
+            airline_name VARCHAR(100) NOT NULL,
+            flight_number VARCHAR(10) NOT NULL,
+            departure_date_time TIMESTAMP NOT NULL,
+            flight_status_at_cancellation VARCHAR(50) NOT NULL,
+            base_price DECIMAL(10, 2) NOT NULL,
+            cancellation_fee DECIMAL(10, 2) NOT NULL,
+            refund_amount DECIMAL(10, 2) NOT NULL,
+            policy_code VARCHAR(40) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_ticket_cancellation (ticket_id, customer_email)
+        )
+        """,
     ]
     last_error = None
     for attempt in range(retries):

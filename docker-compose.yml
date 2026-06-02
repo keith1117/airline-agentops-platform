@@ -28,9 +28,23 @@ services:
       MYSQL_PASSWORD: root
       MYSQL_DB: "Airline Ticket Reservation System"
       RAG_POLICY_PATH: docs/policies/airline_policy.md
+      AGENT_ROUTER_MODE: ${AGENT_ROUTER_MODE:-auto}
+      TOOL_ROUTER_MODE: ${TOOL_ROUTER_MODE:-auto}
+      RAG_RETRIEVER_MODE: ${RAG_RETRIEVER_MODE:-auto}
+      POLICY_ANSWER_MODE: ${POLICY_ANSWER_MODE:-auto}
+      AGENT_TRACE_ENABLED: ${AGENT_TRACE_ENABLED:-true}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      RAG_EMBEDDING_CACHE: instance/rag/policy_embeddings.json
+      RAG_TOP_K: ${RAG_TOP_K:-3}
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.35}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       METRICS_LOG_PATH: logs/agent_metrics.jsonl
     ports:
       - "8001:8001"
@@ -77,6 +91,19 @@ services:
         condition: service_started
       seed:
         condition: service_completed_successfully
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: root
+    ports:
+      - "8080:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
 
 volumes:
   mysql-data:

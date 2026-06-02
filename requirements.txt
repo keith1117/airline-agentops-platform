@@ -7,3 +7,4 @@ pydantic
 requests
 pytest
 locust
+cryptography

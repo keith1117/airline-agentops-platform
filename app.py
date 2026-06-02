@@ -5,6 +5,8 @@ import requests
 from pymysql.cursors import DictCursor
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, Tuple, List
+from agent_service.db import ensure_agent_schema
+from agent_service.tools.customer_tools import cancel_customer_ticket
 
 load_dotenv()
 
@@ -103,6 +105,7 @@ TABLE_LABELS = {
 TOOL_LABELS = {
     "search_flights": "Flight search",
     "get_customer_trips": "Trip lookup",
+    "cancel_customer_ticket": "Ticket cancellation",
     "create_booking_intent": "Booking intent",
     "confirm_booking": "Booking confirmation",
     "answer_policy_question": "Policy RAG",
@@ -222,6 +225,28 @@ def present_agent_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any
         item["display_content"] = _agent_display_content(item, table)
         presented.append(item)
     return presented
+
+
+def _policy_sections() -> List[Dict[str, str]]:
+    policy_path = os.path.join(app.root_path, "docs", "policies", "airline_policy.md")
+    with open(policy_path, encoding="utf-8") as fh:
+        text = fh.read()
+    sections = []
+    current = None
+    for line in text.splitlines():
+        if line.startswith("# "):
+            continue
+        if line.startswith("## "):
+            if current:
+                current["body"] = "\n".join(current["lines"]).strip()
+                sections.append(current)
+            current = {"title": line.replace("## ", "", 1).strip(), "lines": []}
+        elif current is not None:
+            current["lines"].append(line)
+    if current:
+        current["body"] = "\n".join(current["lines"]).strip()
+        sections.append(current)
+    return sections
 
 def build_staff_query(
     airline: str,
@@ -423,26 +448,58 @@ def logout():
     session.clear()
     return redirect(url_for("index"))
 
+
+@app.get("/policy")
+def policy_center():
+    return render_template("policy.html", sections=_policy_sections())
+
 # ---------------- customer use cases ----------------
 @app.get("/customer")
 def customer_home():
     if not as_customer():
         return redirect(url_for("login"))
+    ensure_agent_schema(retries=1, delay_seconds=0)
     email = session["email"]
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT t.ticket_ID, f.airline_name, f.flight_number, f.departure_date_time,
                    f.departure_airport, f.arrival_airport, f.arrival_date_time, f.status
-            FROM Ticket t JOIN Flight f
-            ON t.airline_name=f.airline_name AND t.flight_number=f.flight_number AND t.departure_date_time=f.departure_date_time
-            WHERE t.customer_email=%s AND f.departure_date_time >= NOW()
+            FROM Ticket t
+            JOIN Flight f
+              ON t.airline_name=f.airline_name
+             AND t.flight_number=f.flight_number
+             AND t.departure_date_time=f.departure_date_time
+            LEFT JOIN ticket_cancellations c
+              ON c.customer_email=t.customer_email
+             AND c.ticket_id=t.ticket_ID
+            WHERE t.customer_email=%s AND f.departure_date_time >= NOW() AND c.id IS NULL
             ORDER BY f.departure_date_time
             """,
             (email,),
         )
         flights = cur.fetchall()
     return render_template("customer_home.html", name=session["display"], flights=flights)
+
+
+@app.post("/customer/ticket/cancel")
+def customer_cancel_ticket():
+    if not as_customer():
+        return redirect(url_for("login"))
+    ensure_agent_schema(retries=1, delay_seconds=0)
+    ticket_id_raw = request.form.get("ticket_id", "").strip()
+    if not ticket_id_raw.isdigit():
+        flash("Choose a valid ticket to cancel.")
+        return redirect(url_for("customer_home"))
+    result = cancel_customer_ticket(session["email"], int(ticket_id_raw))
+    if "error" in result:
+        flash(result["error"])
+    else:
+        flash(
+            f"Ticket #{result['ticket_id']} cancelled. "
+            f"Cancellation fee ${result['cancellation_fee']:.2f}; estimated refund ${result['refund_amount']:.2f}."
+        )
+    return redirect(url_for("customer_home"))
 
 @app.route("/customer/agent", methods=["GET", "POST"])
 def customer_agent():

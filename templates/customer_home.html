@@ -21,7 +21,7 @@
   <div class="data-table-wrap">
     <table class="data-table">
       <thead>
-        <tr><th>Ticket</th><th>Route</th><th>Departure</th><th>Airline</th><th>Status</th><th>Review</th></tr>
+        <tr><th>Ticket</th><th>Route</th><th>Departure</th><th>Airline</th><th>Status</th><th>Review</th><th>Cancel</th></tr>
       </thead>
       <tbody>
         {% for f in flights %}
@@ -41,9 +41,15 @@
               <button>Save</button>
             </form>
           </td>
+          <td>
+            <form method="POST" action="{{ url_for('customer_cancel_ticket') }}" onsubmit="return confirm('Cancel ticket #{{ f.ticket_ID }}? Cancellation fees may apply based on the flight status.');">
+              <input type="hidden" name="ticket_id" value="{{ f.ticket_ID }}">
+              <button class="btn-secondary" type="submit">Cancel Ticket</button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6">No flights yet. Search or ask the AI Agent to find one.</td></tr>
+        <tr><td colspan="7">No flights yet. Search or ask the AI Agent to find one.</td></tr>
         {% endfor %}
       </tbody>
     </table>

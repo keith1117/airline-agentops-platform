@@ -3,6 +3,7 @@ import os
 import pytest
 
 from agent_service.db import ensure_agent_schema, get_conn
+from agent_service.config import Settings
 from agent_service.rag import PolicyRAG
 from agent_service.react_agent import ReActAgent
 from scripts.seed_p0_demo import main as seed_p0_demo
@@ -16,6 +17,12 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture()
 def agent():
+    settings = Settings(
+        agent_router_mode="deterministic",
+        tool_router_mode="deterministic",
+        rag_retriever_mode="keyword",
+        policy_answer_mode="extractive",
+    )
     ensure_agent_schema(retries=3)
     seed_p0_demo()
     conn = get_conn()
@@ -25,7 +32,7 @@ def agent():
         conn.commit()
     finally:
         conn.close()
-    return ReActAgent(PolicyRAG("docs/policies/airline_policy.md"))
+    return ReActAgent(PolicyRAG("docs/policies/airline_policy.md", settings=settings), settings=settings)
 
 
 def test_memory_saves_route_budget_and_airline(agent):
@@ -86,4 +93,3 @@ def test_explicit_route_overrides_memory(agent):
     assert search_call["args"]["departure_airport"] == "JFK"
     assert search_call["args"]["arrival_airport"] == "PVG"
     assert search_call["args"]["max_price"] is None
-

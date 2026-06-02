@@ -17,7 +17,7 @@ def test_homepage_uses_single_navigation_path_and_current_acceptance_copy():
 
     assert "Start Demo" not in html
     assert "Create Customer" not in html
-    assert "36 passed" in html
+    assert "53 passed" in html
     assert "Agent guardrails" in html
     assert 'value="SFO"' not in html
     assert 'value="LAX"' not in html
@@ -44,7 +44,9 @@ def test_customer_templates_render():
         "created_at": "2026-05-30 10:00:00",
     }
 
-    assert "data-table" in render_template("customer_home.html", name="Test User", flights=[flight])
+    home_html = render_template("customer_home.html", name="Test User", flights=[flight])
+    assert "data-table" in home_html
+    assert "Cancel Ticket" in home_html
     assert "Search Flights" in render_template("customer_search.html", rows=[flight], dep="SFO", arr="LAX", date="")
     assert "Great demo flight" in render_template("customer_reviews.html", rows=[review])
 
@@ -112,6 +114,8 @@ def test_agent_templates_render_structured_messages():
 
     assert "agent-table" in customer
     assert "citation-pill" in customer
+    assert "Policy Center" in customer
     assert "Tool calls" not in customer
     assert "agent-table" in staff
     assert "Tool calls" in staff
+    assert "Policy Center" in staff

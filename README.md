@@ -2,7 +2,7 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1/P2 Agent demo** for AI application engineering: ReAct-style tool routing, safe tool calling, RAG policy QA with citations, pending booking confirmation, role-based staff analytics, user memory, deterministic Agent Eval, SFT-ready trace export, Docker Compose, observability, and acceptance tests.
+This project demonstrates a stable **P0/P1/P2 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, pending booking confirmation, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, ReAct-style trajectory export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
@@ -16,6 +16,8 @@ P2 also includes a deterministic synthetic data generator. By default it generat
 
 The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
 
+The Agent service is now **AI-first but fallback-safe**. When model credentials are configured, it can prioritize OpenAI native tool calling for tool selection, fall back to JSON structured routing, and use embedding-based grounded RAG for policy questions. Without credentials, or if an external model call fails in `auto` mode, it falls back to deterministic routing, keyword retrieval, and extractive policy answers while recording the fallback reason.
+
 It intentionally uses synthetic/demo airline inventory and mock payment. It does **not** connect to real airline inventory, real ticketing systems, or real payment processors.
 
 ## Architecture
@@ -26,7 +28,11 @@ flowchart LR
     Flask --> FastAPI[FastAPI Agent Service]
     FastAPI --> Registry[Tool Registry + Role Guard]
     Registry --> MySQL[(MySQL Airline DB)]
+    FastAPI --> LLM[OpenAI-compatible Tool Router]
+    LLM --> Native[Native Tool Calling Adapter]
+    LLM --> JSONRouter[JSON Structured Router]
     FastAPI --> RAG[Policy RAG Retriever]
+    RAG --> Embeddings[Embedding Cache]
     RAG --> Policy[Markdown Policy KB]
     FastAPI --> Traces[(agent_traces)]
     FastAPI --> Metrics[Metrics JSONL + /api/metrics]
@@ -40,6 +46,7 @@ Customer Booking Agent at `/customer/agent`:
 - Ask RAG policy questions: `Can I get a refund if my flight is cancelled?`
 - Create a pending mock booking: `Book United flight P0206 at 2026-06-08 09:30:00`
 - Confirm the pending booking before a mock ticket is written
+- Cancel an existing ticket with refund rules based on flight status
 - Display customer-facing answers, citations, structured flight results, and confirmation button; internal tool calls are still recorded in backend traces
 - P1 Memory prompt: `Remember I prefer United and usually fly SFO to LAX under 500`
 - Later memory-backed search: `Find flights next month`
@@ -56,8 +63,12 @@ Customer tools:
 
 - `search_flights`
 - `get_customer_trips`
+- `get_customer_ticket`
+- `cancel_customer_ticket`
 - `create_booking_intent`
 - `confirm_booking`
+- `remember_user_preference`
+- `get_user_preferences`
 - `answer_policy_question`
 
 Staff tools:
@@ -74,6 +85,66 @@ Customer-facing flight availability excludes cancelled flights. Cancelled invent
 
 The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
 
+## AI Router and Grounded RAG Modes
+
+Default modes:
+
+```env
+TOOL_ROUTER_MODE=auto
+AGENT_ROUTER_MODE=auto
+AGENT_RUNTIME_MODE=single_step
+RAG_RETRIEVER_MODE=auto
+POLICY_ANSWER_MODE=auto
+MAX_AGENT_STEPS=4
+RAG_TOP_K=3
+RAG_SIMILARITY_THRESHOLD=0.35
+```
+
+Supported values:
+
+- `TOOL_ROUTER_MODE=auto | native | json | deterministic`
+- `AGENT_ROUTER_MODE=auto | deterministic | llm`
+- `AGENT_RUNTIME_MODE=single_step | bounded_react`
+- `RAG_RETRIEVER_MODE=auto | keyword | embedding`
+- `POLICY_ANSWER_MODE=auto | extractive | llm`
+
+`auto` is the normal demo mode: it uses LLM / embedding capabilities when configured and falls back safely when unavailable. For tool routing, `auto` tries the native OpenAI tool-calling adapter first, then the JSON structured router, then deterministic routing. Forced enhanced modes such as `TOOL_ROUTER_MODE=native` or `llm / embedding / llm` are for verification; missing configuration or API failure should surface as a controlled error instead of silently counting as an enhanced-path success.
+
+Environment compatibility is one-way: `LLM_API_KEY` and `LLM_BASE_URL` take priority. The legacy `OPENAI_API_KEY` and `OPENAI_BASE_URL` are only fallback values when the new variables are empty. If `EMBEDDING_API_KEY` or `EMBEDDING_BASE_URL` are empty, they inherit the final resolved LLM configuration.
+
+Policy questions use grounded RAG. The embedding retriever returns top-k chunks with similarity scores; if the best score is below `RAG_SIMILARITY_THRESHOLD`, the service returns a no-context fallback and does not call the grounded LLM answer generator. Citations are attached by the backend from retrieved chunk metadata, not invented by the model.
+
+## Agent Runtime
+
+The Agent runtime separates model planning from business execution:
+
+1. The router interprets the user request and proposes a tool call.
+2. The backend validates the selected tool against the role-specific registry.
+3. The backend validates arguments and blocks unsafe actions.
+4. Local tools execute database-backed operations with parameterized SQL.
+5. The backend formats transactional and analytics results.
+6. Policy questions use grounded RAG instead of the transactional formatter.
+
+Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
+
+The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct booking-preparation flow for multi-step customer booking requests. In that mode the Agent can search flights, observe the database-backed results, select the cheapest bookable candidate, create a pending booking intent, and then stop for explicit user confirmation. `confirm_booking` and `cancel_customer_ticket` are marked as human-confirmed tools and are not executed inside the bounded loop.
+
+The Agent records ReAct-style trajectories in execution metadata and trace export:
+
+```json
+[
+  {"type": "decision_summary", "content": "Need available bookable flights before preparing a booking intent."},
+  {"type": "action", "tool": "search_flights", "args": {"departure_airport": "SFO", "arrival_airport": "LAX"}},
+  {"type": "observation", "tool": "search_flights", "content": {"count": 1}},
+  {"type": "decision_summary", "content": "Selected the lowest-price bookable flight and will create a pending booking intent only."},
+  {"type": "action", "tool": "create_booking_intent", "args": {"flight_number": "P0206"}},
+  {"type": "observation", "tool": "create_booking_intent", "content": {"status": "PENDING_CONFIRMATION"}},
+  {"type": "final_answer", "content": "I created a pending booking intent. Please confirm before the ticket is issued."}
+]
+```
+
+This trajectory format is used for debugging, deterministic eval analysis, and SFT-ready trace export. It is not a claim that real SFT or Agentic RL training has been performed.
+
 ## Docker Demo Path
 
 Start the full production-like demo stack with Docker Compose:
@@ -86,15 +157,18 @@ Then open the demo endpoints:
 
 - Flask web app: `http://127.0.0.1:5050`
 - Agent health: `http://127.0.0.1:8001/health`
+- Docker phpMyAdmin: `http://127.0.0.1:8080`
 
-The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the P0 demo flight is available.
+The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, Docker phpMyAdmin for visual database inspection, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the P0 demo flight is available.
+
+Docker phpMyAdmin connects directly to the Compose MySQL service. Use `root` / `root` if prompted. This is independent of MAMP phpMyAdmin, so MAMP does not need to be running for the Docker demo path.
 
 Docker Compose runtime has been verified locally with MySQL, the seed service, the FastAPI Agent service, and the Flask web app all running successfully.
 
 Current Docker config test result:
 
 ```text
-2 passed
+3 passed
 ```
 
 ## Run Locally
@@ -117,6 +191,12 @@ Start the FastAPI Agent service:
 
 ```bash
 uvicorn agent_service.main:app --host 127.0.0.1 --port 8001
+```
+
+Optional: prebuild the policy embedding cache before an enhanced LLM/RAG demo:
+
+```bash
+python -m agent_service.build_policy_index
 ```
 
 Start the Flask web app:
@@ -201,7 +281,13 @@ P1 Core regression tests:
 RUN_P1_CORE=1 python -m pytest tests/test_p1_core_regressions.py -q
 ```
 
-These cover RAG no-context fallback and safe booking idempotency behavior.
+These cover RAG no-context fallback, safe booking idempotency behavior, and ticket cancellation refund rules.
+
+AI-first router and grounded RAG tests:
+
+```bash
+python -m pytest tests/test_ai_config_modes.py tests/test_ai_grounded_rag.py tests/test_ai_router_policy_path.py -q
+```
 
 Complete P0/P1 acceptance suite:
 
@@ -213,7 +299,7 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified result:
 
 ```text
-36 passed
+59 passed
 ```
 
 P0.5 UI smoke result:
@@ -346,7 +432,7 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `36 passed in 1.35s` |
+| Full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `59 passed in 1.20s` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
@@ -450,4 +536,6 @@ P0 acceptance covers:
 - Large synthetic data is generated locally and is not committed to Git.
 - Payment is mocked with a non-real payment token.
 - This is a production-like MVP, not a real airline commerce platform.
+- Native OpenAI tool calling is used only as a tool-selection adapter. Business operations are still executed by local backend tools.
+- The project uses a custom lightweight Agent runtime and local JSON embedding cache. It does not use LangChain, LangGraph, Chroma, Pinecone, or another vector database.
 - Real SFT and Agentic RL training are not implemented. The project includes eval, trace export, and reward-signal design for future optimization.

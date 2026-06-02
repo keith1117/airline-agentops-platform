@@ -4,15 +4,18 @@ import time
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from .config import settings
+from .config import Settings, settings as default_settings
 from .db import get_conn
-from .rag import PolicyRAG
+from .llm import LLMClient, LLMRouter, NativeToolCallingRouter
+from .rag import PolicyRAG, RAGConfigurationError
 from .tool_registry import Tool, ToolRegistry
 from .tools.customer_tools import (
     answer_policy_question,
+    cancel_customer_ticket,
     confirm_booking,
     create_booking_intent,
     get_user_preferences,
+    get_customer_ticket,
     get_customer_trips,
     parse_airports,
     remember_user_preference,
@@ -27,30 +30,41 @@ from .tools.staff_tools import (
 
 
 class ReActAgent:
-    def __init__(self, rag: PolicyRAG) -> None:
+    def __init__(self, rag: PolicyRAG, settings: Settings = default_settings, router: Optional[Any] = None) -> None:
         self.rag = rag
+        self.settings = settings
+        llm_client = LLMClient(settings)
+        if router is not None and getattr(router, "router_kind", "json") == "native":
+            self.native_router = router
+            self.router = LLMRouter(llm_client)
+        else:
+            self.native_router = NativeToolCallingRouter(llm_client)
+            self.router = router or LLMRouter(llm_client)
         self.registry = ToolRegistry()
         self._register_tools()
 
     def _register_tools(self) -> None:
-        self.registry.register(Tool("search_flights", "Search available future flights.", ["customer"], search_flights))
-        self.registry.register(Tool("get_customer_trips", "Return a customer's trips.", ["customer"], get_customer_trips))
-        self.registry.register(Tool("create_booking_intent", "Create pending booking intent.", ["customer"], create_booking_intent))
-        self.registry.register(Tool("confirm_booking", "Confirm a pending mock booking.", ["customer"], confirm_booking))
-        self.registry.register(Tool("remember_user_preference", "Save customer travel preferences.", ["customer"], remember_user_preference))
-        self.registry.register(Tool("get_user_preferences", "Get customer travel preferences.", ["customer"], get_user_preferences))
+        self.registry.register(Tool("search_flights", "Search available future flights.", ["customer"], search_flights, risk="safe_read"))
+        self.registry.register(Tool("get_customer_trips", "Return a customer's trips.", ["customer"], get_customer_trips, risk="safe_read"))
+        self.registry.register(Tool("get_customer_ticket", "Return one customer ticket by ticket ID.", ["customer"], get_customer_ticket, risk="safe_read"))
+        self.registry.register(Tool("cancel_customer_ticket", "Cancel one customer ticket and calculate refund terms.", ["customer"], cancel_customer_ticket, risk="human_confirmed"))
+        self.registry.register(Tool("create_booking_intent", "Create pending booking intent.", ["customer"], create_booking_intent, risk="controlled_write"))
+        self.registry.register(Tool("confirm_booking", "Confirm a pending mock booking.", ["customer"], confirm_booking, risk="human_confirmed"))
+        self.registry.register(Tool("remember_user_preference", "Save customer travel preferences.", ["customer"], remember_user_preference, risk="controlled_write"))
+        self.registry.register(Tool("get_user_preferences", "Get customer travel preferences.", ["customer"], get_user_preferences, risk="safe_read"))
         self.registry.register(
             Tool(
                 "answer_policy_question",
                 "Answer policy questions from the knowledge base.",
                 ["customer", "staff"],
                 lambda question: answer_policy_question(self.rag, question),
+                risk="safe_read",
             )
         )
-        self.registry.register(Tool("get_sales_report", "Return monthly ticket sales.", ["staff"], get_sales_report))
-        self.registry.register(Tool("analyze_reviews", "Analyze ratings and comments.", ["staff"], analyze_reviews))
-        self.registry.register(Tool("get_flight_load_factor", "Return load factor by flight.", ["staff"], get_flight_load_factor))
-        self.registry.register(Tool("get_route_performance", "Return route performance.", ["staff"], get_route_performance))
+        self.registry.register(Tool("get_sales_report", "Return monthly ticket sales.", ["staff"], get_sales_report, risk="safe_read"))
+        self.registry.register(Tool("analyze_reviews", "Analyze ratings and comments.", ["staff"], analyze_reviews, risk="safe_read"))
+        self.registry.register(Tool("get_flight_load_factor", "Return load factor by flight.", ["staff"], get_flight_load_factor, risk="safe_read"))
+        self.registry.register(Tool("get_route_performance", "Return route performance.", ["staff"], get_route_performance, risk="safe_read"))
 
     def customer_chat(self, session_id: str, customer_email: str, message: str) -> Dict[str, Any]:
         started = time.time()
@@ -60,20 +74,38 @@ class ReActAgent:
         answer = ""
         error = None
         reasoning = "Classify customer request and call the safest allowed tool."
+        execution = self._execution()
+        execution["runtime_mode_used"] = self.settings.agent_runtime_mode
         try:
             lower = message.lower()
-            if self._is_identity_question(lower):
+            if self._should_use_bounded_customer_runtime(lower, message):
+                routed = self._bounded_customer_react(customer_email, message, tool_calls, execution)
+                answer = routed["answer"]
+                pending = routed.get("pending_confirmation")
+            elif self._is_identity_question(lower):
                 answer = f"You are currently logged in as customer {customer_email}."
-            elif self._is_policy_question(lower):
-                result = self.registry.call("customer", "answer_policy_question", question=message)
-                tool_calls.append({"name": "answer_policy_question", "args": {"question": message}, "result": result})
+                execution["request_path"] = "identity"
+            elif self._is_cancel_ticket_request(lower) and self._extract_ticket_id(message) is None:
+                answer = "I can cancel a specific ticket. Please provide your ticket number."
+                execution.update({"request_path": "clarification", "router_used": "deterministic"})
+            elif (ticket_id := self._extract_ticket_id(message)) is not None:
+                routed = self._handle_ticket_followup(session_id, customer_email, ticket_id, message, tool_calls, execution)
+                answer = routed["answer"]
+            elif self._is_policy_question(lower) and not self._is_payment_or_booking_transaction(lower):
+                result = self._call_policy_tool("customer", message, tool_calls, execution, router_used="bypassed")
                 answer = result["answer"]
                 citations = result.get("citations", [])
+            elif (routed := self._try_customer_llm_route(message, customer_email, tool_calls, execution)) is not None:
+                answer = routed["answer"]
+                citations = routed.get("citations", [])
+                pending = routed.get("pending_confirmation")
             elif any(word in lower for word in ["trip", "order", "ticket", "my flight", "我的", "订单"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("customer", "get_customer_trips", customer_email=customer_email)
                 tool_calls.append({"name": "get_customer_trips", "args": {"customer_email": customer_email}, "result": result})
                 answer = self._format_trips(result)
             elif any(word in lower for word in ["prefer", "remember", "usually", "preference", "偏好", "记住"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 dep, arr = parse_airports(message)
                 max_price = self._extract_budget(message)
                 airline = self._extract_airline(message)
@@ -97,6 +129,7 @@ class ReActAgent:
                 suffix = ", ".join(saved_parts) if saved_parts else "the available preferences"
                 answer = f"I saved {suffix} for future searches."
             elif any(word in lower for word in ["book", "buy", "purchase", "reserve", "订", "买"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 flight_number = self._extract_flight_number(message)
                 dep_time = self._extract_datetime(message)
                 airline = self._extract_airline(message) or "United"
@@ -124,6 +157,7 @@ class ReActAgent:
                     tool_calls.append({"name": "search_flights", "args": {"departure_airport": dep, "arrival_airport": arr}, "result": result})
                     answer = self._format_flights(result) + " Tell me the flight number and departure time to create a booking intent."
             elif self._is_customer_search_question(lower, message):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 dep, arr = parse_airports(message)
                 period = "next_month" if "next month" in lower else None
                 max_price = self._extract_budget(message)
@@ -155,11 +189,15 @@ class ReActAgent:
                 answer = self._format_flights(result)
             else:
                 answer = self._customer_scope_fallback()
+                execution["request_path"] = "scope_fallback"
         except Exception as exc:
             error = str(exc)
             answer = f"The agent hit a controlled error: {error}"
-        self._trace(session_id, "customer", customer_email, message, reasoning, tool_calls, answer, started, error)
-        return {"answer": answer, "citations": citations, "tool_calls": tool_calls, "pending_confirmation": pending}
+            execution["fallback_reason"] = execution.get("fallback_reason") or error
+        self._ensure_trajectory(tool_calls, execution)
+        self._append_final_answer(execution, answer)
+        self._trace(session_id, "customer", customer_email, message, reasoning, tool_calls, answer, started, error, execution)
+        return {"answer": answer, "citations": citations, "tool_calls": tool_calls, "pending_confirmation": pending, "execution": execution}
 
     def staff_chat(self, session_id: str, staff_username: str, airline_name: str, message: str) -> Dict[str, Any]:
         started = time.time()
@@ -168,41 +206,54 @@ class ReActAgent:
         table = None
         error = None
         reasoning = "Classify staff analytics request and call staff-only reporting tools."
+        execution = self._execution()
+        execution["runtime_mode_used"] = self.settings.agent_runtime_mode
         try:
             lower = message.lower()
             if self._is_identity_question(lower):
                 answer = f"You are currently logged in as staff user {staff_username} for {airline_name}."
-            elif self._is_policy_question(lower):
-                result = self.registry.call("staff", "answer_policy_question", question=message)
-                tool_calls.append({"name": "answer_policy_question", "args": {"question": message}, "result": result})
+                execution["request_path"] = "identity"
+            elif self._is_policy_question(lower) and not self._is_payment_or_booking_transaction(lower):
+                result = self._call_policy_tool("staff", message, tool_calls, execution, router_used="bypassed")
                 answer = result["answer"]
+            elif (routed := self._try_staff_llm_route(message, airline_name, tool_calls, execution)) is not None:
+                answer = routed["answer"]
+                table = routed.get("tables")
             elif any(word in lower for word in ["review", "rating", "comment", "差评", "评分"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("staff", "analyze_reviews", airline_name=airline_name)
                 tool_calls.append({"name": "analyze_reviews", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("summary")
                 answer = self._format_review_analysis(result)
             elif any(word in lower for word in ["load", "capacity", "full", "seat", "载客", "满座"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("staff", "get_flight_load_factor", airline_name=airline_name)
                 tool_calls.append({"name": "get_flight_load_factor", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("rows")
                 answer = self._format_table("Highest load factor flights", result.get("rows", []))
             elif any(word in lower for word in ["route", "popular", "performance", "热门", "航线"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("staff", "get_route_performance", airline_name=airline_name)
                 tool_calls.append({"name": "get_route_performance", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("rows")
                 answer = self._format_table("Route performance", result.get("rows", []))
             elif any(word in lower for word in ["sales", "revenue", "report", "monthly", "last year", "ticket sales", "销售", "收入", "报表"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("staff", "get_sales_report", airline_name=airline_name)
                 tool_calls.append({"name": "get_sales_report", "args": {"airline_name": airline_name}, "result": result})
                 table = result.get("rows")
                 answer = self._format_table("Sales report", result.get("rows", []))
             else:
                 answer = self._staff_scope_fallback()
+                execution["request_path"] = "scope_fallback"
         except Exception as exc:
             error = str(exc)
             answer = f"The staff copilot hit a controlled error: {error}"
-        self._trace(session_id, "staff", staff_username, message, reasoning, tool_calls, answer, started, error)
-        return {"answer": answer, "tool_calls": tool_calls, "tables": table}
+            execution["fallback_reason"] = execution.get("fallback_reason") or error
+        self._ensure_trajectory(tool_calls, execution)
+        self._append_final_answer(execution, answer)
+        self._trace(session_id, "staff", staff_username, message, reasoning, tool_calls, answer, started, error, execution)
+        return {"answer": answer, "tool_calls": tool_calls, "tables": table, "execution": execution}
 
     def confirm_booking(self, booking_intent_id: int, customer_email: str, idempotency_key: str) -> Dict[str, Any]:
         return self.registry.call(
@@ -213,7 +264,599 @@ class ReActAgent:
             idempotency_key=idempotency_key,
         )
 
-    def _trace(self, session_id, role, principal, message, reasoning, tool_calls, answer, started, error=None) -> None:
+    def _should_use_bounded_customer_runtime(self, lower: str, message: str) -> bool:
+        mode = self.settings.agent_runtime_mode
+        if mode not in {"bounded_react", "auto"}:
+            return False
+        if self._is_cancel_ticket_request(lower):
+            return True
+        if mode == "bounded_react":
+            return self._is_booking_preparation_goal(lower)
+        return self._is_booking_preparation_goal(lower) and ("cheapest" in lower or "prepare" in lower)
+
+    @staticmethod
+    def _is_booking_preparation_goal(lower: str) -> bool:
+        booking_words = ["book", "buy", "purchase", "reserve", "booking", "prepare", "订", "买"]
+        flight_words = ["flight", "flights", "航班"]
+        return any(word in lower for word in booking_words) and any(word in lower for word in flight_words)
+
+    def _bounded_customer_react(
+        self,
+        customer_email: str,
+        message: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        lower = message.lower()
+        execution.update(
+            {
+                "request_path": "bounded_react",
+                "runtime_mode_used": "bounded_react",
+                "router_used": "bounded_controller",
+                "answer_mode_used": "backend_formatter",
+                "step_count": 0,
+                "stop_reason": None,
+                "confirmation_required": False,
+            }
+        )
+
+        if self._is_cancel_ticket_request(lower):
+            execution.update({"stop_reason": "human_confirmed_tool_blocked"})
+            self._trajectory_decision(
+                execution,
+                "Cancellation is a human-confirmed tool, so the bounded booking-preparation loop will not execute it.",
+            )
+            return {
+                "answer": (
+                    "Ticket cancellation is handled outside this bounded booking-preparation loop. "
+                    "Please use the cancellation flow with a specific ticket number."
+                )
+            }
+
+        dep, arr = parse_airports(message)
+        airline = self._extract_airline(message) or "United"
+        period = "next_month" if "next month" in lower else None
+        max_price = self._extract_budget(message)
+
+        if self.settings.max_agent_steps < 2:
+            execution.update({"stop_reason": "max_steps_reached", "step_count": self.settings.max_agent_steps})
+            self._trajectory_decision(execution, "The bounded runtime stopped before executing tools because max steps is too low.")
+            return {"answer": "I need at least two bounded steps to search flights and prepare a pending booking."}
+
+        self._bounded_call(
+            "customer",
+            "search_flights",
+            tool_calls,
+            execution,
+            decision_summary="Need available bookable flights before preparing a booking intent.",
+            departure_airport=dep,
+            arrival_airport=arr,
+            airline_name=airline,
+            period=period,
+            max_price=max_price,
+        )
+        search_result = tool_calls[-1]["result"]
+        flights = search_result.get("flights") or []
+        if not flights:
+            execution.update({"stop_reason": "no_flights", "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"])})
+            self._append_final_answer(execution, "I could not find a bookable matching flight in the current inventory.")
+            return {"answer": "I could not find a bookable matching flight in the current inventory."}
+
+        selected = self._select_cheapest_flight(flights)
+        if not selected:
+            execution.update({"stop_reason": "no_flights", "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"])})
+            answer = "I found flight records, but none are bookable for a pending booking intent."
+            self._append_final_answer(execution, answer)
+            return {"answer": answer}
+
+        self._bounded_call(
+            "customer",
+            "create_booking_intent",
+            tool_calls,
+            execution,
+            decision_summary=(
+                f"Selected the lowest-price bookable flight {selected['flight_number']} "
+                "and will create a pending booking intent only."
+            ),
+            customer_email=customer_email,
+            airline_name=selected["airline_name"],
+            flight_number=selected["flight_number"],
+            departure_date_time=_normalize_datetime(selected["departure_date_time"]) or str(selected["departure_date_time"]),
+        )
+        result = tool_calls[-1]["result"]
+        if "error" in result:
+            execution.update({"stop_reason": "tool_error"})
+            return {"answer": result["error"]}
+
+        execution.update(
+            {
+                "stop_reason": "confirmation_required",
+                "confirmation_required": True,
+                "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
+            }
+        )
+        answer = (
+            f"I found the cheapest matching bookable flight: {selected['airline_name']} {selected['flight_number']} "
+            f"from {selected['departure_airport']} to {selected['arrival_airport']} departing at "
+            f"{selected['departure_date_time']} for ${selected['base_price']}. "
+            "I created a pending booking intent. Please confirm before the ticket is issued."
+        )
+        return {"answer": answer, "pending_confirmation": result}
+
+    def _bounded_call(
+        self,
+        role: str,
+        tool_name: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+        decision_summary: str,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        risk = self.registry.risk_for(tool_name)
+        if risk == "human_confirmed":
+            execution.update({"stop_reason": "human_confirmed_tool_blocked", "confirmation_required": True})
+            raise RuntimeError(f"Bounded runtime cannot execute human-confirmed tool: {tool_name}")
+        if len([s for s in execution.get("trajectory", []) if s.get("type") == "action"]) >= self.settings.max_agent_steps:
+            execution.update({"stop_reason": "max_steps_reached"})
+            raise RuntimeError("Bounded runtime reached MAX_AGENT_STEPS.")
+        self._trajectory_decision(execution, decision_summary)
+        self._trajectory_action(execution, tool_name, kwargs)
+        result = self.registry.call(role, tool_name, **kwargs)
+        tool_calls.append({"name": tool_name, "args": kwargs, "result": result})
+        self._trajectory_observation(execution, tool_name, result)
+        return result
+
+    @staticmethod
+    def _select_cheapest_flight(flights: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        candidates = [
+            flight
+            for flight in flights
+            if str(flight.get("status", "")).upper() != "CANCELLED" and int(flight.get("seats_left") or 0) > 0
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda flight: (float(flight.get("base_price") or 0), str(flight.get("departure_date_time") or "")))
+
+    def _try_customer_llm_route(
+        self,
+        message: str,
+        customer_email: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        plan = self._route_or_fallback("customer", message, execution)
+        if plan is None:
+            return None
+        try:
+            return self._execute_customer_plan(plan, message, customer_email, tool_calls, execution)
+        except RuntimeError as exc:
+            if self._is_forced_tool_router_mode():
+                raise
+            execution["fallback_reason"] = f"{exc}; used deterministic router"
+            return None
+
+    def _try_staff_llm_route(
+        self,
+        message: str,
+        airline_name: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        plan = self._route_or_fallback("staff", message, execution)
+        if plan is None:
+            return None
+        try:
+            return self._execute_staff_plan(plan, message, airline_name, tool_calls, execution)
+        except RuntimeError as exc:
+            if self._is_forced_tool_router_mode():
+                raise
+            execution["fallback_reason"] = f"{exc}; used deterministic router"
+            return None
+
+    def _route_or_fallback(self, role: str, message: str, execution: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        mode = self._effective_tool_router_mode()
+        if mode == "deterministic":
+            return None
+        if mode == "native":
+            return self._route_with_router(self.native_router, "native", role, message, execution, forced=True)
+        if mode == "json":
+            return self._route_with_router(self.router, "llm", role, message, execution, forced=True)
+
+        fallback_reasons = []
+        native_plan = self._route_with_router(self.native_router, "native", role, message, execution, forced=False)
+        if native_plan is not None:
+            return native_plan
+        if execution.get("fallback_reason"):
+            fallback_reasons.append(execution["fallback_reason"])
+            execution["fallback_reason"] = None
+        json_plan = self._route_with_router(self.router, "llm", role, message, execution, forced=False)
+        if json_plan is not None:
+            if fallback_reasons:
+                execution["fallback_reason"] = "; ".join(fallback_reasons)
+            return json_plan
+        if execution.get("fallback_reason"):
+            fallback_reasons.append(execution["fallback_reason"])
+        execution["fallback_reason"] = "; ".join(fallback_reasons) if fallback_reasons else "Tool router unavailable; used deterministic router"
+        return None
+
+    def _route_with_router(
+        self,
+        router: Any,
+        router_used: str,
+        role: str,
+        message: str,
+        execution: Dict[str, Any],
+        forced: bool,
+    ) -> Optional[Dict[str, Any]]:
+        if not getattr(router, "enabled", lambda: True)():
+            if forced:
+                raise RuntimeError(f"{router_used} router is forced but LLM_API_KEY is not configured.")
+            execution["fallback_reason"] = f"{router_used} router unavailable"
+            return None
+        try:
+            plan = router.route(role, message, context={})
+        except Exception as exc:
+            if forced:
+                raise RuntimeError(f"{router_used} router failed: {exc}") from exc
+            execution["fallback_reason"] = f"{router_used} router failed: {exc}"
+            return None
+        if not forced and not plan.get("tool") and not plan.get("needs_clarification"):
+            execution["fallback_reason"] = f"{router_used} router returned no tool"
+            return None
+        execution["router_used"] = router_used
+        self._trajectory_reasoning(execution, f"{router_used} router selected {plan.get('tool') or 'no tool'} for intent {plan.get('intent')}.")
+        return plan
+
+    def _effective_tool_router_mode(self) -> str:
+        if self.settings.tool_router_mode != "auto":
+            return self.settings.tool_router_mode
+        if self.settings.agent_router_mode == "llm":
+            return "json"
+        if self.settings.agent_router_mode == "deterministic":
+            return "deterministic"
+        return "auto"
+
+    def _is_forced_tool_router_mode(self) -> bool:
+        return self._effective_tool_router_mode() in {"native", "json"}
+
+    def _execute_customer_plan(
+        self,
+        plan: Dict[str, Any],
+        message: str,
+        customer_email: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if plan.get("needs_clarification"):
+            if plan.get("tool") == "create_booking_intent" or self._is_payment_or_booking_transaction(message.lower()):
+                return self._handle_booking_request(plan.get("args") or {}, message, customer_email, tool_calls, execution)
+            execution["request_path"] = "clarification"
+            return {"answer": plan.get("clarification_question") or "Can you provide more details?"}
+        tool = plan.get("tool")
+        args = plan.get("args") or {}
+        if tool == "answer_policy_question":
+            result = self._call_policy_tool("customer", args.get("question") or message, tool_calls, execution, router_used="llm")
+            return {"answer": result["answer"], "citations": result.get("citations", [])}
+        if tool == "search_flights":
+            dep, arr = parse_airports(message)
+            self._trajectory_action(execution, "search_flights", args)
+            result = self.registry.call(
+                "customer",
+                "search_flights",
+                departure_airport=args.get("departure_airport") or dep,
+                arrival_airport=args.get("arrival_airport") or arr,
+                airline_name=args.get("airline_name"),
+                travel_date=args.get("travel_date"),
+                period=args.get("period"),
+                max_price=args.get("max_price"),
+            )
+            execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+            tool_calls.append({"name": "search_flights", "args": args, "result": result})
+            self._trajectory_observation(execution, "search_flights", result)
+            return {"answer": self._format_flights(result)}
+        if tool == "get_customer_trips":
+            self._trajectory_action(execution, "get_customer_trips", {"customer_email": customer_email})
+            result = self.registry.call("customer", "get_customer_trips", customer_email=customer_email)
+            execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+            tool_calls.append({"name": "get_customer_trips", "args": {"customer_email": customer_email}, "result": result})
+            self._trajectory_observation(execution, "get_customer_trips", result)
+            return {"answer": self._format_trips(result)}
+        if tool == "cancel_customer_ticket":
+            ticket_id = args.get("ticket_id") or self._extract_ticket_id(message)
+            if not ticket_id:
+                execution["request_path"] = "clarification"
+                return {"answer": "I can cancel a specific ticket. Please provide your ticket number."}
+            return self._cancel_ticket(customer_email, int(ticket_id), tool_calls, execution)
+        if tool == "remember_user_preference":
+            if not self._explicit_memory_request(message.lower()):
+                raise RuntimeError("LLM router attempted to save preferences without an explicit remember/save request.")
+            result = self.registry.call(
+                "customer",
+                "remember_user_preference",
+                customer_email=customer_email,
+                departure_city=args.get("departure_city"),
+                destination_city=args.get("destination_city"),
+                max_budget=args.get("max_budget"),
+                preferred_airline=args.get("preferred_airline"),
+            )
+            execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+            tool_calls.append({"name": "remember_user_preference", "args": args, "result": result})
+            return {"answer": "I saved your travel preferences for future searches."}
+        if tool == "create_booking_intent":
+            return self._handle_booking_request(args, message, customer_email, tool_calls, execution)
+        if tool:
+            raise RuntimeError(f"LLM router returned unsupported customer tool: {tool}")
+        return {"answer": self._customer_scope_fallback()}
+
+    def _handle_ticket_followup(
+        self,
+        session_id: str,
+        customer_email: str,
+        ticket_id: int,
+        message: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
+        context = f"{message}\n{self._recent_session_text(session_id)}".lower()
+        if self._is_cancel_ticket_request(context):
+            return self._cancel_ticket(customer_email, ticket_id, tool_calls, execution)
+
+        result = self.registry.call("customer", "get_customer_ticket", customer_email=customer_email, ticket_id=ticket_id)
+        tool_calls.append({"name": "get_customer_ticket", "args": {"ticket_id": ticket_id}, "result": result})
+        ticket = result.get("ticket")
+        if not ticket:
+            return {"answer": f"I could not find ticket {ticket_id} for your account."}
+
+        if "refund" in context or "cancel" in context:
+            return {"answer": self._format_ticket_refund_status(ticket)}
+        if "baggage" in context or "bag" in context:
+            return {"answer": self._format_ticket_baggage_status(ticket)}
+        if "delay" in context or "status" in context:
+            return {"answer": self._format_ticket_status(ticket)}
+        return {"answer": self._format_ticket_status(ticket)}
+
+    def _cancel_ticket(
+        self,
+        customer_email: str,
+        ticket_id: int,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+        result = self.registry.call("customer", "cancel_customer_ticket", customer_email=customer_email, ticket_id=ticket_id)
+        tool_calls.append({"name": "cancel_customer_ticket", "args": {"ticket_id": ticket_id}, "result": result})
+        if "error" in result:
+            return {"answer": result["error"]}
+        return {"answer": self._format_cancellation_result(result)}
+
+    def _handle_booking_request(
+        self,
+        args: Dict[str, Any],
+        message: str,
+        customer_email: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+        dep_from_text, arr_from_text = parse_airports(message)
+        flight_number = _normalize_flight_number(args.get("flight_number")) or self._extract_flight_number(message)
+        departure_time = _normalize_datetime(args.get("departure_date_time")) or self._extract_datetime(message)
+        travel_date = args.get("travel_date") or (departure_time[:10] if departure_time else None)
+        airline = args.get("airline_name") or self._extract_airline(message) or "United"
+        dep = args.get("departure_airport") or dep_from_text
+        arr = args.get("arrival_airport") or arr_from_text
+
+        search_result = None
+        if flight_number or dep or arr or travel_date:
+            search_result = self.registry.call(
+                "customer",
+                "search_flights",
+                departure_airport=dep,
+                arrival_airport=arr,
+                airline_name=airline,
+                travel_date=travel_date,
+            )
+            tool_calls.append(
+                {
+                    "name": "search_flights",
+                    "args": {
+                        "departure_airport": dep,
+                        "arrival_airport": arr,
+                        "airline_name": airline,
+                        "travel_date": travel_date,
+                    },
+                    "result": search_result,
+                }
+            )
+
+        flights = (search_result or {}).get("flights", [])
+        matches = [
+            row
+            for row in flights
+            if (not flight_number or str(row.get("flight_number", "")).upper() == flight_number)
+            and (not departure_time or _normalize_datetime(row.get("departure_date_time")) == departure_time)
+        ]
+
+        if flight_number and departure_time:
+            if not matches:
+                answer = (
+                    f"I could not find a bookable {airline} flight {flight_number} departing at {departure_time} "
+                    "in the current inventory."
+                )
+                if flights:
+                    answer += "\n\n" + self._format_flights(search_result or {})
+                return {"answer": answer}
+            return self._create_pending_booking(customer_email, matches[0], tool_calls)
+
+        if len(matches) == 1:
+            return self._create_pending_booking(customer_email, matches[0], tool_calls)
+
+        if flights:
+            return {
+                "answer": (
+                    self._format_flights(search_result or {})
+                    + "\n\nPlease choose one flight by providing the flight number and departure time."
+                )
+            }
+
+        return {
+            "answer": (
+                "Which flight should I create a pending booking for? I need a bookable flight number and departure time. "
+                "You can also provide a route and date so I can search available flights first."
+            )
+        }
+
+    def _create_pending_booking(
+        self,
+        customer_email: str,
+        flight: Dict[str, Any],
+        tool_calls: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        result = self.registry.call(
+            "customer",
+            "create_booking_intent",
+            customer_email=customer_email,
+            airline_name=flight["airline_name"],
+            flight_number=flight["flight_number"],
+            departure_date_time=_normalize_datetime(flight["departure_date_time"]) or str(flight["departure_date_time"]),
+        )
+        tool_calls.append(
+            {
+                "name": "create_booking_intent",
+                "args": {
+                    "airline_name": flight["airline_name"],
+                    "flight_number": flight["flight_number"],
+                    "departure_date_time": _normalize_datetime(flight["departure_date_time"]) or str(flight["departure_date_time"]),
+                },
+                "result": result,
+            }
+        )
+        if "error" in result:
+            return {"answer": result["error"]}
+        answer = (
+            f"I found {flight['airline_name']} flight {flight['flight_number']} from "
+            f"{flight['departure_airport']} to {flight['arrival_airport']} departing at "
+            f"{flight['departure_date_time']} for ${flight['base_price']}. "
+            "I created a pending booking intent. Please confirm before the ticket is issued."
+        )
+        return {"answer": answer, "pending_confirmation": result}
+
+    def _execute_staff_plan(
+        self,
+        plan: Dict[str, Any],
+        message: str,
+        airline_name: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if plan.get("needs_clarification"):
+            execution["request_path"] = "clarification"
+            return {"answer": plan.get("clarification_question") or "Can you provide more details?"}
+        tool = plan.get("tool")
+        args = plan.get("args") or {}
+        if tool == "answer_policy_question":
+            result = self._call_policy_tool("staff", args.get("question") or message, tool_calls, execution, router_used="llm")
+            return {"answer": result["answer"]}
+        staff_tools = {
+            "get_sales_report": lambda: self.registry.call("staff", "get_sales_report", airline_name=airline_name),
+            "analyze_reviews": lambda: self.registry.call("staff", "analyze_reviews", airline_name=airline_name),
+            "get_flight_load_factor": lambda: self.registry.call("staff", "get_flight_load_factor", airline_name=airline_name),
+            "get_route_performance": lambda: self.registry.call("staff", "get_route_performance", airline_name=airline_name),
+        }
+        if tool in staff_tools:
+            result = staff_tools[tool]()
+            execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
+            tool_calls.append({"name": tool, "args": {"airline_name": airline_name, **args}, "result": result})
+            table = result.get("rows") or result.get("summary")
+            if tool == "analyze_reviews":
+                answer = self._format_review_analysis(result)
+            else:
+                answer = self._format_table(tool.replace("_", " ").title(), table or [])
+            return {"answer": answer, "tables": table}
+        if tool:
+            raise RuntimeError(f"LLM router returned unsupported staff tool: {tool}")
+        return {"answer": self._staff_scope_fallback()}
+
+    def _call_policy_tool(
+        self,
+        role: str,
+        question: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+        router_used: str,
+    ) -> Dict[str, Any]:
+        result = self.registry.call(role, "answer_policy_question", question=question)
+        self._trajectory_action(execution, "answer_policy_question", {"question": question})
+        tool_calls.append({"name": "answer_policy_question", "args": {"question": question}, "result": result})
+        self._trajectory_observation(execution, "answer_policy_question", result)
+        rag_execution = result.get("execution", {})
+        execution.update(
+            {
+                "request_path": "policy_rag",
+                "router_used": router_used,
+                "retriever_used": rag_execution.get("retriever_used", execution.get("retriever_used", "none")),
+                "answer_mode_used": rag_execution.get("answer_mode_used", execution.get("answer_mode_used", "none")),
+                "fallback_reason": rag_execution.get("fallback_reason") or execution.get("fallback_reason"),
+            }
+        )
+        return result
+
+    @staticmethod
+    def _execution() -> Dict[str, Any]:
+        return {
+            "request_path": "unknown",
+            "router_used": "none",
+            "retriever_used": "none",
+            "answer_mode_used": "none",
+            "fallback_reason": None,
+            "runtime_mode_used": "single_step",
+            "step_count": 0,
+            "stop_reason": None,
+            "confirmation_required": False,
+            "trajectory": [],
+        }
+
+    @staticmethod
+    def _trajectory_decision(execution: Dict[str, Any], content: str) -> None:
+        execution.setdefault("trajectory", []).append({"type": "decision_summary", "content": content})
+
+    @staticmethod
+    def _trajectory_reasoning(execution: Dict[str, Any], content: str) -> None:
+        execution.setdefault("trajectory", []).append({"type": "reasoning", "content": content})
+
+    @staticmethod
+    def _trajectory_action(execution: Dict[str, Any], tool: str, args: Dict[str, Any]) -> None:
+        execution.setdefault("trajectory", []).append({"type": "action", "tool": tool, "args": args})
+
+    @staticmethod
+    def _trajectory_observation(execution: Dict[str, Any], tool: str, result: Dict[str, Any]) -> None:
+        preview = result
+        execution.setdefault("trajectory", []).append({"type": "observation", "tool": tool, "content": preview})
+
+    @staticmethod
+    def _append_final_answer(execution: Dict[str, Any], answer: str) -> None:
+        trajectory = execution.setdefault("trajectory", [])
+        if answer and not any(step.get("type") == "final_answer" for step in trajectory):
+            trajectory.append({"type": "final_answer", "content": answer})
+
+    @classmethod
+    def _ensure_trajectory(cls, tool_calls: List[Dict[str, Any]], execution: Dict[str, Any]) -> None:
+        trajectory = execution.setdefault("trajectory", [])
+        if not trajectory:
+            cls._trajectory_reasoning(
+                execution,
+                f"Handle request through {execution.get('request_path', 'unknown')} with {execution.get('router_used', 'none')} routing.",
+            )
+        if any(step.get("type") == "action" for step in trajectory):
+            return
+        for call in tool_calls:
+            cls._trajectory_action(execution, call.get("name", "unknown_tool"), call.get("args") or {})
+            cls._trajectory_observation(execution, call.get("name", "unknown_tool"), call.get("result") or {})
+
+    def _trace(self, session_id, role, principal, message, reasoning, tool_calls, answer, started, error=None, execution=None) -> None:
+        if not self.settings.agent_trace_enabled:
+            return
         conn = get_conn()
         try:
             with conn.cursor() as cur:
@@ -236,7 +879,7 @@ class ReActAgent:
                         role,
                         principal,
                         message,
-                        reasoning,
+                        reasoning + ("\nexecution: " + json.dumps(execution, default=str) if execution else ""),
                         json.dumps(tool_calls, default=str),
                         answer,
                         int((time.time() - started) * 1000),
@@ -244,6 +887,27 @@ class ReActAgent:
                     ),
                 )
             conn.commit()
+        finally:
+            conn.close()
+
+    def _recent_session_text(self, session_id: str) -> str:
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT user_message, final_answer
+                    FROM agent_traces
+                    WHERE session_id=%s
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 3
+                    """,
+                    (session_id,),
+                )
+                rows = cur.fetchall()
+            return "\n".join(f"{row.get('user_message', '')}\n{row.get('final_answer', '')}" for row in rows)
+        except Exception:
+            return ""
         finally:
             conn.close()
 
@@ -290,6 +954,26 @@ class ReActAgent:
         )
 
     @staticmethod
+    def _is_payment_or_booking_transaction(lower: str) -> bool:
+        transaction_pattern = r"\b(book|buy|purchase|reserve|pay|checkout)\b|confirm booking|订|买|支付"
+        informational_markers = ["policy", "rule", "method", "methods", "what", "how", "can i", "does", "refund", "fee"]
+        return bool(re.search(transaction_pattern, lower)) and not any(marker in lower for marker in informational_markers)
+
+    @staticmethod
+    def _is_cancel_ticket_request(lower: str) -> bool:
+        active_patterns = [
+            r"\bplease\s+cancel\b",
+            r"\bcancel\s+(?:my\s+)?(?:flight|ticket|booking|trip)\b",
+            r"\b(?:flight|ticket|booking|trip)\s+cancellation\b",
+            r"取消(?:我的)?(?:航班|机票|订单|行程)",
+        ]
+        return any(re.search(pattern, lower) for pattern in active_patterns)
+
+    @staticmethod
+    def _explicit_memory_request(lower: str) -> bool:
+        return any(word in lower for word in ["remember", "save", "preference", "prefer", "记住", "保存", "偏好"])
+
+    @staticmethod
     def _customer_scope_fallback() -> str:
         return (
             "I can only help with airline booking tasks, including flight search, your trips, airline policy questions, "
@@ -334,6 +1018,11 @@ class ReActAgent:
         return value
 
     @staticmethod
+    def _extract_ticket_id(message: str) -> Optional[int]:
+        match = re.search(r"(?:ticket|票|订单)\D{0,12}#?\s*(\d{1,10})\b", message, re.IGNORECASE)
+        return int(match.group(1)) if match else None
+
+    @staticmethod
     def _format_flights(result: Dict[str, Any]) -> str:
         rows = result.get("flights", [])
         if not rows:
@@ -362,6 +1051,57 @@ class ReActAgent:
         )
 
     @staticmethod
+    def _format_ticket_status(ticket: Dict[str, Any]) -> str:
+        return (
+            f"Ticket {ticket['ticket_ID']}: {ticket['airline_name']} {ticket['flight_number']} "
+            f"{ticket['departure_airport']} -> {ticket['arrival_airport']} departing at "
+            f"{ticket['departure_date_time']} is currently {ticket['status']}."
+        )
+
+    def _format_ticket_refund_status(self, ticket: Dict[str, Any]) -> str:
+        base = self._format_ticket_status(ticket)
+        if ticket.get("status") == "CANCELLED":
+            return (
+                f"{base}\n\nBased on the refund policy, this ticket is eligible for refund review because "
+                "the flight was cancelled by the airline."
+            )
+        return (
+            f"{base}\n\nBased on the refund policy, this ticket is not currently eligible for an "
+            "airline-cancelled-flight refund because the flight status is "
+            f"{ticket['status']}. If you want a voluntary cancellation refund review, eligibility depends on "
+            "the ticket rules attached to that fare."
+        )
+
+    def _format_ticket_baggage_status(self, ticket: Dict[str, Any]) -> str:
+        base = self._format_ticket_status(ticket)
+        return (
+            f"{base}\n\nFor this booking, the standard baggage policy allows one carry-on bag and one personal item. "
+            "Checked baggage eligibility and fees depend on the route, airline rules, and ticket class."
+        )
+
+    @staticmethod
+    def _format_cancellation_result(result: Dict[str, Any]) -> str:
+        status = result.get("flight_status")
+        fee = float(result.get("cancellation_fee", 0))
+        refund = float(result.get("refund_amount", 0))
+        prefix = "This ticket was already cancelled." if result.get("already_cancelled") else "I cancelled this ticket."
+        if status == "DELAYED":
+            policy = "Because the flight is delayed, the cancellation fee is reduced."
+        elif status == "CANCELLED":
+            policy = "Because the airline cancelled the flight, no cancellation fee is charged."
+        else:
+            policy = "Because the flight is currently on time, the standard voluntary cancellation fee applies."
+        route = ""
+        if result.get("departure_airport") and result.get("arrival_airport"):
+            route = f" {result['departure_airport']} -> {result['arrival_airport']}"
+        return (
+            f"{prefix}\n\n"
+            f"Ticket {result['ticket_id']}: {result['airline_name']} {result['flight_number']}{route} departing at "
+            f"{result['departure_date_time']} is currently {status}.\n\n"
+            f"{policy} Cancellation fee: ${fee:.2f}. Estimated refund: ${refund:.2f}."
+        )
+
+    @staticmethod
     def _format_table(title: str, rows: List[Dict[str, Any]]) -> str:
         if not rows:
             return f"{title}: no rows found."
@@ -375,3 +1115,23 @@ class ReActAgent:
         if not summary and not comments:
             return "No reviews found."
         return "Lowest-rated review summary: " + "; ".join(str(row) for row in summary[:5])
+
+
+def _normalize_flight_number(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    return str(value).strip().upper()
+
+
+def _normalize_datetime(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip().replace("T", " ")
+    match = re.search(r"(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?", text)
+    if not match:
+        return text
+    date_part = match.group(1)
+    time_part = match.group(2) or "00:00:00"
+    if len(time_part) == 5:
+        time_part += ":00"
+    return f"{date_part} {time_part}"

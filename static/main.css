@@ -238,6 +238,13 @@ label { font-weight: 650; color: var(--color-navy); }
 .confirm-panel span { display: block; color: #4b5563; margin-top: 2px; }
 .demo-panel h3 { margin-top: 0; color: var(--color-navy); }
 .demo-panel ul { padding-left: 18px; color: var(--color-muted); line-height: 1.55; }
+.text-link { color: var(--color-orange-dark); font-weight: 800; text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
+.policy-card { display: grid; gap: 18px; }
+.policy-section { border-bottom: 1px solid var(--color-border); padding-bottom: 16px; }
+.policy-section:last-child { border-bottom: 0; padding-bottom: 0; }
+.policy-section h2 { margin: 0 0 8px; color: var(--color-navy); font-size: 22px; }
+.policy-section p { margin: 0; color: var(--color-muted); line-height: 1.6; }
 
 .staff-form { display: grid; gap: 12px; }
 .staff-form .form-row input, .staff-form .form-row select { flex: 1 1 180px; }

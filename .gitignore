@@ -11,5 +11,6 @@ build/
 *.egg-info/
 chroma/
 logs/
+instance/rag/
 sql/synthetic_data.sql
 eval/sft_ready_traces.jsonl

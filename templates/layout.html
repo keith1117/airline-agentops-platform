@@ -12,6 +12,7 @@
       <a class="brand-mark" href="{{ url_for('index') }}">Airline <span>AgentOps</span></a>
       <div class="nav-links">
         <a href="{{ url_for('index') }}">Home</a>
+        <a href="{{ url_for('policy_center') }}">Policy</a>
         {% if session.get('role') == 'customer' %}
           <a href="{{ url_for('customer_home') }}">My Flights</a>
           <a href="{{ url_for('customer_agent') }}">AI Agent</a>

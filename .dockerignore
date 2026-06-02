@@ -9,6 +9,7 @@ __pycache__/
 .env
 eval/sft_ready_traces.jsonl
 logs/
+instance/rag/
 sql/synthetic_data.sql
 demo_screenshots/
 *.log

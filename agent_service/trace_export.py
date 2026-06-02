@@ -32,6 +32,7 @@ def export_traces(
     with path.open("w", encoding="utf-8") as fh:
         for row in rows:
             tool_calls = json.loads(row["tool_calls"] or "[]")
+            execution = _parse_execution(row["reasoning"] or "")
             fh.write(
                 json.dumps(
                     {
@@ -46,6 +47,8 @@ def export_traces(
                             "role": row["role"],
                             "principal": row["principal"],
                             "tool_names": [call.get("name") for call in tool_calls],
+                            "execution": execution,
+                            "trajectory": execution.get("trajectory", []),
                             "created_at": str(row["created_at"]),
                         },
                     },
@@ -55,3 +58,13 @@ def export_traces(
             )
             exported += 1
     return {"output_path": str(path), "exported": exported, "session_prefix": session_prefix}
+
+
+def _parse_execution(reasoning: str) -> Dict[str, object]:
+    marker = "\nexecution: "
+    if marker not in reasoning:
+        return {}
+    try:
+        return json.loads(reasoning.split(marker, 1)[1])
+    except json.JSONDecodeError:
+        return {}
