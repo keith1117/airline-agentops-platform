@@ -5,6 +5,7 @@ import pytest
 from agent_service.db import ensure_agent_schema, get_conn
 from agent_service.rag import PolicyRAG
 from agent_service.react_agent import ReActAgent
+from agent_service.tools.customer_tools import create_booking_intent
 from scripts.seed_p0_demo import first_day_next_month, main as seed_p0_demo
 
 
@@ -72,13 +73,14 @@ def test_booking_confirmation_is_idempotent(agent):
     finally:
         conn.close()
 
-    booking_resp = agent.customer_chat(
-        "p1-core-idempotency",
-        email,
-        f"Book United flight P0206 at {departure_time}",
+    pending = create_booking_intent(
+        customer_email=email,
+        airline_name="United",
+        flight_number="P0206",
+        departure_date_time=departure_time,
     )
-    pending = booking_resp["pending_confirmation"]
     assert pending
+    assert "error" not in pending
 
     first = agent.confirm_booking(pending["booking_intent_id"], email, pending["idempotency_key"])
     second = agent.confirm_booking(pending["booking_intent_id"], email, pending["idempotency_key"])
@@ -124,12 +126,13 @@ def test_invalid_booking_idempotency_key_does_not_issue_ticket(agent):
     finally:
         conn.close()
 
-    booking_resp = agent.customer_chat(
-        "p1-core-invalid-key",
-        email,
-        f"Book United flight P0206 at {departure_time}",
+    pending = create_booking_intent(
+        customer_email=email,
+        airline_name="United",
+        flight_number="P0206",
+        departure_date_time=departure_time,
     )
-    pending = booking_resp["pending_confirmation"]
+    assert "error" not in pending
     result = agent.confirm_booking(pending["booking_intent_id"], email, "wrong-key")
 
     assert result["status"] == "FAILED"
