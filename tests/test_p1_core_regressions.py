@@ -222,6 +222,33 @@ def test_cancel_customer_ticket_charges_large_fee_for_on_time_ticket(agent):
     assert second["refund_amount"] == 168.0
 
 
+def test_preview_customer_ticket_cancellation_does_not_write_cancellation(agent):
+    from agent_service.db import get_conn
+    from agent_service.tools.customer_tools import preview_customer_ticket_cancellation
+
+    email = "preview-cancel@nyu.edu"
+    ticket_id = 910062
+    departure_time = _p0_departure_time()
+    _insert_customer_ticket(email, ticket_id, "P0206", departure_time)
+
+    result = preview_customer_ticket_cancellation(email, ticket_id)
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS count FROM ticket_cancellations WHERE ticket_id=%s", (ticket_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    assert result["preview"] is True
+    assert result["confirmation_required"] is True
+    assert result["flight_status"] == "ON_TIME"
+    assert result["cancellation_fee"] == 252.0
+    assert result["refund_amount"] == 168.0
+    assert int(row["count"]) == 0
+
+
 def test_cancel_customer_ticket_reduces_fee_for_delayed_ticket(agent):
     from datetime import datetime, timedelta
 

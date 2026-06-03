@@ -10,7 +10,7 @@ from .db import ensure_agent_schema, get_conn
 from .metrics import MetricsCollector
 from .rag import PolicyRAG
 from .react_agent import ReActAgent
-from .schemas import ConfirmBookingRequest, CustomerChatRequest, EvalRunRequest, StaffChatRequest
+from .schemas import ConfirmBookingRequest, ConfirmCancellationRequest, CustomerChatRequest, EvalRunRequest, StaffChatRequest
 
 
 @asynccontextmanager
@@ -96,6 +96,11 @@ def staff_chat(req: StaffChatRequest):
 @app.post("/api/agent/confirm-booking")
 def confirm_booking(req: ConfirmBookingRequest):
     return agent.confirm_booking(req.booking_intent_id, req.customer_email, req.idempotency_key)
+
+
+@app.post("/api/agent/confirm-cancellation")
+def confirm_cancellation(req: ConfirmCancellationRequest):
+    return agent.confirm_cancellation(req.customer_email, req.ticket_id)
 
 
 @app.post("/api/eval/run")

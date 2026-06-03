@@ -18,6 +18,7 @@ from .tools.customer_tools import (
     get_customer_ticket,
     get_customer_trips,
     parse_airports,
+    preview_customer_ticket_cancellation,
     remember_user_preference,
     search_flights,
 )
@@ -47,6 +48,7 @@ class ReActAgent:
         self.registry.register(Tool("search_flights", "Search available future flights.", ["customer"], search_flights, risk="safe_read"))
         self.registry.register(Tool("get_customer_trips", "Return a customer's trips.", ["customer"], get_customer_trips, risk="safe_read"))
         self.registry.register(Tool("get_customer_ticket", "Return one customer ticket by ticket ID.", ["customer"], get_customer_ticket, risk="safe_read"))
+        self.registry.register(Tool("preview_customer_ticket_cancellation", "Preview cancellation fee and refund before cancelling a ticket.", ["customer"], preview_customer_ticket_cancellation, risk="safe_read"))
         self.registry.register(Tool("cancel_customer_ticket", "Cancel one customer ticket and calculate refund terms.", ["customer"], cancel_customer_ticket, risk="human_confirmed"))
         self.registry.register(Tool("create_booking_intent", "Create pending booking intent.", ["customer"], create_booking_intent, risk="controlled_write"))
         self.registry.register(Tool("confirm_booking", "Confirm a pending mock booking.", ["customer"], confirm_booking, risk="human_confirmed"))
@@ -71,6 +73,7 @@ class ReActAgent:
         tool_calls: List[Dict[str, Any]] = []
         citations: List[Dict[str, Any]] = []
         pending = None
+        pending_cancellation = None
         answer = ""
         error = None
         reasoning = "Classify customer request and call the safest allowed tool."
@@ -82,6 +85,7 @@ class ReActAgent:
                 routed = self._bounded_customer_react(session_id, customer_email, message, tool_calls, execution)
                 answer = routed["answer"]
                 pending = routed.get("pending_confirmation")
+                pending_cancellation = routed.get("pending_cancellation")
             elif self._is_identity_question(lower):
                 answer = f"You are currently logged in as customer {customer_email}."
                 execution["request_path"] = "identity"
@@ -91,6 +95,7 @@ class ReActAgent:
             elif (ticket_id := self._extract_ticket_id(message)) is not None:
                 routed = self._handle_ticket_followup(session_id, customer_email, ticket_id, message, tool_calls, execution)
                 answer = routed["answer"]
+                pending_cancellation = routed.get("pending_cancellation")
             elif self._is_policy_question(lower) and not self._is_payment_or_booking_transaction(lower):
                 result = self._call_policy_tool("customer", message, tool_calls, execution, router_used="bypassed")
                 answer = result["answer"]
@@ -99,6 +104,7 @@ class ReActAgent:
                 answer = routed["answer"]
                 citations = routed.get("citations", [])
                 pending = routed.get("pending_confirmation")
+                pending_cancellation = routed.get("pending_cancellation")
             elif any(word in lower for word in ["trip", "order", "ticket", "my flight", "我的", "订单"]):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("customer", "get_customer_trips", customer_email=customer_email)
@@ -177,7 +183,14 @@ class ReActAgent:
         self._ensure_trajectory(tool_calls, execution)
         self._append_final_answer(execution, answer)
         self._trace(session_id, "customer", customer_email, message, reasoning, tool_calls, answer, started, error, execution)
-        return {"answer": answer, "citations": citations, "tool_calls": tool_calls, "pending_confirmation": pending, "execution": execution}
+        return {
+            "answer": answer,
+            "citations": citations,
+            "tool_calls": tool_calls,
+            "pending_confirmation": pending,
+            "pending_cancellation": pending_cancellation,
+            "execution": execution,
+        }
 
     def staff_chat(self, session_id: str, staff_username: str, airline_name: str, message: str) -> Dict[str, Any]:
         started = time.time()
@@ -244,6 +257,14 @@ class ReActAgent:
             idempotency_key=idempotency_key,
         )
 
+    def confirm_cancellation(self, customer_email: str, ticket_id: int) -> Dict[str, Any]:
+        return self.registry.call(
+            "customer",
+            "cancel_customer_ticket",
+            customer_email=customer_email,
+            ticket_id=ticket_id,
+        )
+
     def _should_use_bounded_customer_runtime(self, lower: str, message: str) -> bool:
         mode = self.settings.agent_runtime_mode
         if mode not in {"bounded_react", "auto"}:
@@ -284,17 +305,12 @@ class ReActAgent:
         )
 
         if self._is_cancel_ticket_request(lower):
-            execution.update({"stop_reason": "human_confirmed_tool_blocked"})
-            self._trajectory_decision(
-                execution,
-                "Cancellation is a human-confirmed tool, so the bounded booking-preparation loop will not execute it.",
-            )
-            return {
-                "answer": (
-                    "Ticket cancellation is handled outside this bounded booking-preparation loop. "
-                    "Please use the cancellation flow with a specific ticket number."
-                )
-            }
+            ticket_id = self._extract_ticket_id(message)
+            if not ticket_id:
+                execution.update({"stop_reason": "clarification"})
+                self._trajectory_decision(execution, "Need a ticket number before preparing a cancellation preview.")
+                return {"answer": "I can cancel a specific ticket. Please provide your ticket number."}
+            return self._preview_cancellation(customer_email, ticket_id, tool_calls, execution)
 
         dep, arr = parse_airports(message)
         airline = self._extract_airline(message) or "United"
@@ -571,7 +587,7 @@ class ReActAgent:
             if not ticket_id:
                 execution["request_path"] = "clarification"
                 return {"answer": "I can cancel a specific ticket. Please provide your ticket number."}
-            return self._cancel_ticket(customer_email, int(ticket_id), tool_calls, execution)
+            return self._preview_cancellation(customer_email, int(ticket_id), tool_calls, execution)
         if tool == "remember_user_preference":
             if not self._explicit_memory_request(message.lower()):
                 raise RuntimeError("LLM router attempted to save preferences without an explicit remember/save request.")
@@ -605,7 +621,7 @@ class ReActAgent:
         execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
         context = f"{message}\n{self._recent_session_text(session_id)}".lower()
         if self._is_cancel_ticket_request(context):
-            return self._cancel_ticket(customer_email, ticket_id, tool_calls, execution)
+            return self._preview_cancellation(customer_email, ticket_id, tool_calls, execution)
 
         result = self.registry.call("customer", "get_customer_ticket", customer_email=customer_email, ticket_id=ticket_id)
         tool_calls.append({"name": "get_customer_ticket", "args": {"ticket_id": ticket_id}, "result": result})
@@ -634,6 +650,42 @@ class ReActAgent:
         if "error" in result:
             return {"answer": result["error"]}
         return {"answer": self._format_cancellation_result(result)}
+
+    def _preview_cancellation(
+        self,
+        customer_email: str,
+        ticket_id: int,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        execution.update(
+            {
+                "request_path": "cancellation_preview",
+                "answer_mode_used": "backend_formatter",
+                "stop_reason": "cancellation_confirmation_required",
+                "confirmation_required": True,
+            }
+        )
+        self._trajectory_decision(
+            execution,
+            "Preview cancellation fee and estimated refund before requiring explicit cancellation confirmation.",
+        )
+        self._trajectory_action(execution, "preview_customer_ticket_cancellation", {"ticket_id": ticket_id})
+        result = self.registry.call(
+            "customer",
+            "preview_customer_ticket_cancellation",
+            customer_email=customer_email,
+            ticket_id=ticket_id,
+        )
+        tool_calls.append({"name": "preview_customer_ticket_cancellation", "args": {"ticket_id": ticket_id}, "result": result})
+        self._trajectory_observation(execution, "preview_customer_ticket_cancellation", result)
+        if "error" in result:
+            execution.update({"stop_reason": "tool_error", "confirmation_required": False})
+            return {"answer": result["error"]}
+        if result.get("already_cancelled"):
+            execution.update({"stop_reason": "already_cancelled", "confirmation_required": False})
+            return {"answer": self._format_cancellation_result(result), "pending_cancellation": None}
+        return {"answer": self._format_cancellation_preview(result), "pending_cancellation": result}
 
     def _handle_booking_request(
         self,
@@ -1242,6 +1294,28 @@ class ReActAgent:
             f"Ticket {result['ticket_id']}: {result['airline_name']} {result['flight_number']}{route} departing at "
             f"{result['departure_date_time']} is currently {status}.\n\n"
             f"{policy} Cancellation fee: ${fee:.2f}. Estimated refund: ${refund:.2f}."
+        )
+
+    @staticmethod
+    def _format_cancellation_preview(result: Dict[str, Any]) -> str:
+        status = result.get("flight_status")
+        fee = float(result.get("cancellation_fee", 0))
+        refund = float(result.get("refund_amount", 0))
+        if status == "DELAYED":
+            policy = "Because the flight is delayed, the cancellation fee is reduced."
+        elif status == "CANCELLED":
+            policy = "Because the airline cancelled the flight, no cancellation fee is charged."
+        else:
+            policy = "Because the flight is currently on time, the standard voluntary cancellation fee applies."
+        route = ""
+        if result.get("departure_airport") and result.get("arrival_airport"):
+            route = f" {result['departure_airport']} -> {result['arrival_airport']}"
+        return (
+            "Cancellation preview only. I have not cancelled this ticket yet.\n\n"
+            f"Ticket {result['ticket_id']}: {result['airline_name']} {result['flight_number']}{route} departing at "
+            f"{result['departure_date_time']} is currently {status}.\n\n"
+            f"{policy} Cancellation fee: ${fee:.2f}. Estimated refund: ${refund:.2f}.\n\n"
+            "Please confirm cancellation before I cancel this ticket."
         )
 
     @staticmethod

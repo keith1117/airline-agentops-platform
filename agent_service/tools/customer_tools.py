@@ -207,6 +207,69 @@ def _cancellation_result_from_row(row: Dict[str, Any], already_cancelled: bool =
     }
 
 
+def preview_customer_ticket_cancellation(customer_email: str, ticket_id: int) -> Dict[str, Any]:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM ticket_cancellations
+                WHERE customer_email=%s AND ticket_id=%s
+                LIMIT 1
+                """,
+                (customer_email, ticket_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                result = _cancellation_result_from_row(existing, already_cancelled=True)
+                result.update({"preview": True, "confirmation_required": False})
+                return result
+
+            cur.execute(
+                """
+                SELECT t.ticket_ID, t.customer_email, f.airline_name, f.flight_number,
+                       f.departure_date_time, f.arrival_date_time, f.departure_airport,
+                       f.arrival_airport, f.status, f.base_price
+                FROM Ticket t
+                JOIN Flight f
+                  ON t.airline_name=f.airline_name
+                 AND t.flight_number=f.flight_number
+                 AND t.departure_date_time=f.departure_date_time
+                WHERE t.customer_email=%s AND t.ticket_ID=%s
+                LIMIT 1
+                """,
+                (customer_email, ticket_id),
+            )
+            ticket = cur.fetchone()
+            if not ticket:
+                return {"error": f"I could not find ticket {ticket_id} for your account."}
+            if ticket["departure_date_time"] <= datetime.now():
+                return {"error": "This ticket cannot be cancelled because the flight has already departed."}
+
+            base_price = Decimal(str(ticket["base_price"]))
+            cancellation_fee, refund_amount, policy_code = _cancellation_terms(ticket["status"], base_price)
+            return {
+                "preview": True,
+                "confirmation_required": True,
+                "ticket_id": ticket["ticket_ID"],
+                "customer_email": customer_email,
+                "airline_name": ticket["airline_name"],
+                "flight_number": ticket["flight_number"],
+                "departure_airport": ticket["departure_airport"],
+                "arrival_airport": ticket["arrival_airport"],
+                "departure_date_time": ticket["departure_date_time"].isoformat(sep=" "),
+                "flight_status": ticket["status"],
+                "base_price": _serialize_money(base_price),
+                "cancellation_fee": _serialize_money(cancellation_fee),
+                "refund_amount": _serialize_money(refund_amount),
+                "policy_code": policy_code,
+                "message": "Cancellation preview ready. Confirm cancellation before this ticket is cancelled.",
+            }
+    finally:
+        conn.close()
+
+
 def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any]:
     conn = get_conn()
     try:

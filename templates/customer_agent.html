@@ -57,6 +57,16 @@
             <button type="submit">Confirm Mock Booking</button>
           </form>
         {% endif %}
+        {% if m.meta.pending_cancellation %}
+          <form method="post" action="{{ url_for('customer_agent_confirm_cancellation') }}" class="inline-form confirm-panel">
+            <input type="hidden" name="ticket_id" value="{{ m.meta.pending_cancellation.ticket_id }}">
+            <div>
+              <strong>Cancellation confirmation required</strong>
+              <span>Estimated refund: ${{ "%.2f"|format(m.meta.pending_cancellation.refund_amount) }}. This action will cancel the ticket.</span>
+            </div>
+            <button type="submit">Confirm Cancellation</button>
+          </form>
+        {% endif %}
       </div>
     {% endfor %}
   </div>

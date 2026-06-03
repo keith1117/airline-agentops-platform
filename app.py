@@ -548,6 +548,30 @@ def customer_agent_confirm():
     append_agent_message(chat_key, "assistant", result.get("message", str(result)), result)
     return redirect(url_for("customer_agent"))
 
+
+@app.post("/customer/agent/confirm-cancellation")
+def customer_agent_confirm_cancellation():
+    if not as_customer():
+        return redirect(url_for("login"))
+    chat_key = "customer_agent_messages"
+    ticket_id = request.form.get("ticket_id")
+    result = agent_post(
+        "/api/agent/confirm-cancellation",
+        {
+            "ticket_id": int(ticket_id),
+            "customer_email": session["email"],
+        },
+    )
+    if "error" in result:
+        answer = result["error"]
+    else:
+        answer = (
+            f"Ticket #{result['ticket_id']} cancelled. "
+            f"Cancellation fee ${result['cancellation_fee']:.2f}; estimated refund ${result['refund_amount']:.2f}."
+        )
+    append_agent_message(chat_key, "assistant", answer, result)
+    return redirect(url_for("customer_agent"))
+
 @app.route("/customer/search", methods=["GET", "POST"])
 def customer_search():
     if request.method == "GET":

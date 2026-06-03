@@ -278,15 +278,41 @@ def test_bounded_react_no_flights_does_not_create_booking_intent(monkeypatch):
     assert "could not find" in resp["answer"].lower()
 
 
-def test_bounded_react_blocks_human_confirmed_tools(monkeypatch):
+def test_bounded_react_cancel_request_returns_preview_not_direct_cancellation(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "preview_customer_ticket_cancellation":
+            return {
+                "preview": True,
+                "confirmation_required": True,
+                "ticket_id": 900090,
+                "airline_name": "United",
+                "flight_number": "P0206",
+                "departure_airport": "SFO",
+                "arrival_airport": "LAX",
+                "departure_date_time": "2026-06-08 09:30:00",
+                "flight_status": "ON_TIME",
+                "base_price": 420.0,
+                "cancellation_fee": 252.0,
+                "refund_amount": 168.0,
+                "policy_code": "STANDARD_ON_TIME",
+                "message": "Cancellation preview ready.",
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
 
     resp = agent.customer_chat("bounded-cancel", "testcustomer@nyu.edu", "please cancel my ticket #900090")
 
+    assert [name for name, _ in calls] == ["preview_customer_ticket_cancellation"]
     assert not any(call["name"] == "cancel_customer_ticket" for call in resp["tool_calls"])
-    assert resp["execution"]["stop_reason"] == "human_confirmed_tool_blocked"
-    assert "outside this bounded booking-preparation loop" in resp["answer"]
+    assert resp["pending_cancellation"]["ticket_id"] == 900090
+    assert resp["execution"]["stop_reason"] == "cancellation_confirmation_required"
+    assert "confirm" in resp["answer"].lower()
 
 
 def test_booking_this_one_uses_recent_single_flight_result(monkeypatch):

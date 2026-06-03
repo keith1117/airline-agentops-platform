@@ -22,14 +22,19 @@ class ConfirmBookingRequest(BaseModel):
     idempotency_key: str
 
 
+class ConfirmCancellationRequest(BaseModel):
+    ticket_id: int
+    customer_email: str
+
+
 class AgentResponse(BaseModel):
     answer: str
     citations: List[Dict[str, Any]] = []
     tool_calls: List[Dict[str, Any]] = []
     pending_confirmation: Optional[Dict[str, Any]] = None
+    pending_cancellation: Optional[Dict[str, Any]] = None
     tables: Optional[List[Dict[str, Any]]] = None
 
 
 class EvalRunRequest(BaseModel):
     suite_name: str = "default"
-

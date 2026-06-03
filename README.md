@@ -68,6 +68,7 @@ Customer tools:
 - `search_flights`
 - `get_customer_trips`
 - `get_customer_ticket`
+- `preview_customer_ticket_cancellation`
 - `cancel_customer_ticket`
 - `create_booking_intent`
 - `confirm_booking`
@@ -131,7 +132,9 @@ The Agent runtime separates model planning from business execution:
 
 Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
 
-The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct booking-preparation flow for multi-step customer booking requests. In that mode the Agent can search flights, observe the database-backed results, select the cheapest bookable candidate, create a pending booking intent, and then stop for explicit user confirmation. `confirm_booking` and `cancel_customer_ticket` are marked as human-confirmed tools and are not executed inside the bounded loop.
+The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for multi-step customer requests. In booking-preparation mode, the Agent can search flights, observe database-backed results, select the cheapest bookable candidate, create a pending booking intent, and then stop for explicit user confirmation.
+
+P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. `confirm_booking` follows the same high-risk action boundary.
 
 The Agent records ReAct-style trajectories in execution metadata and trace export:
 
@@ -180,6 +183,15 @@ Current Docker config test result:
 ```text
 3 passed
 ```
+
+Core Agent API endpoints:
+
+- `POST /api/agent/customer/chat`
+- `POST /api/agent/staff/chat`
+- `POST /api/agent/confirm-booking`
+- `POST /api/agent/confirm-cancellation`
+- `GET /health`
+- `GET /api/metrics`
 
 ## Run Locally
 
@@ -491,9 +503,9 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `58 passed, 17 skipped in 0.57s` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `75 passed in 43.09s` |
-| P3.1 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `13 passed` |
+| Local fast regression suite | `python -m pytest tests -q` | `59 passed, 18 skipped in 0.70s` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `77 passed in 26.52s` |
+| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `13 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |

@@ -203,7 +203,7 @@ def test_cancel_request_without_ticket_asks_for_ticket_instead_of_policy_rag(mon
     assert resp["execution"]["request_path"] == "clarification"
 
 
-def test_cancel_followup_with_ticket_id_calls_cancellation_tool(monkeypatch):
+def test_cancel_followup_with_ticket_id_creates_cancellation_preview(monkeypatch):
     settings = Settings(agent_router_mode="deterministic")
     agent = ReActAgent(
         PolicyRAG("docs/policies/airline_policy.md", settings=settings),
@@ -216,10 +216,10 @@ def test_cancel_followup_with_ticket_id_calls_cancellation_tool(monkeypatch):
 
     def fake_call(role, tool_name, **kwargs):
         calls.append((tool_name, kwargs))
-        if tool_name == "cancel_customer_ticket":
+        if tool_name == "preview_customer_ticket_cancellation":
             return {
-                "cancelled": True,
-                "already_cancelled": False,
+                "preview": True,
+                "confirmation_required": True,
                 "ticket_id": 900090,
                 "airline_name": "United",
                 "flight_number": "P0206",
@@ -231,7 +231,7 @@ def test_cancel_followup_with_ticket_id_calls_cancellation_tool(monkeypatch):
                 "cancellation_fee": 252.0,
                 "refund_amount": 168.0,
                 "policy_code": "STANDARD_ON_TIME",
-                "message": "Ticket 900090 was cancelled.",
+                "message": "Cancellation preview ready.",
             }
         raise AssertionError(f"unexpected tool call {tool_name}")
 
@@ -239,11 +239,69 @@ def test_cancel_followup_with_ticket_id_calls_cancellation_tool(monkeypatch):
 
     resp = agent.customer_chat("cancel-followup", "testcustomer@nyu.edu", "my ticket: #900090")
 
-    assert [name for name, _ in calls] == ["cancel_customer_ticket"]
+    assert [name for name, _ in calls] == ["preview_customer_ticket_cancellation"]
+    assert resp["pending_cancellation"]["ticket_id"] == 900090
+    assert resp["execution"]["stop_reason"] == "cancellation_confirmation_required"
+    assert resp["execution"]["confirmation_required"] is True
     assert "ticket 900090" in resp["answer"].lower()
-    assert "cancelled" in resp["answer"].lower()
+    assert "confirm" in resp["answer"].lower()
     assert "$252.00" in resp["answer"]
     assert "$168.00" in resp["answer"]
+
+
+class CancelTicketRouter:
+    def enabled(self):
+        return True
+
+    def route(self, role, message, context=None):
+        return {
+            "intent": "cancel_ticket",
+            "tool": "cancel_customer_ticket",
+            "args": {"ticket_id": 900090},
+            "needs_clarification": False,
+            "clarification_question": None,
+        }
+
+
+def test_llm_cancel_tool_plan_is_downgraded_to_preview(monkeypatch):
+    settings = Settings(agent_router_mode="llm")
+    agent = ReActAgent(
+        PolicyRAG("docs/policies/airline_policy.md", settings=settings),
+        settings=settings,
+        router=CancelTicketRouter(),
+    )
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "preview_customer_ticket_cancellation":
+            return {
+                "preview": True,
+                "confirmation_required": True,
+                "ticket_id": 900090,
+                "airline_name": "United",
+                "flight_number": "P0206",
+                "departure_airport": "SFO",
+                "arrival_airport": "LAX",
+                "departure_date_time": "2026-06-08 09:30:00",
+                "flight_status": "ON_TIME",
+                "base_price": 420.0,
+                "cancellation_fee": 252.0,
+                "refund_amount": 168.0,
+                "policy_code": "STANDARD_ON_TIME",
+                "message": "Cancellation preview ready.",
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat("cancel-router-preview", "testcustomer@nyu.edu", "please undo my trip")
+
+    assert [name for name, _ in calls] == ["preview_customer_ticket_cancellation"]
+    assert not any(call["name"] == "cancel_customer_ticket" for call in resp["tool_calls"])
+    assert resp["pending_cancellation"]["confirmation_required"] is True
 
 
 class UnknownToolRouter:
