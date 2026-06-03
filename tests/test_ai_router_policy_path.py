@@ -68,7 +68,7 @@ class CompleteBookingRouter:
         }
 
 
-def test_llm_booking_plan_with_complete_flight_details_creates_pending_intent(monkeypatch):
+def test_llm_booking_plan_with_complete_flight_details_returns_bookable_search_result(monkeypatch):
     settings = Settings(agent_router_mode="llm")
     agent = ReActAgent(
         PolicyRAG("docs/policies/airline_policy.md", settings=settings),
@@ -98,15 +98,6 @@ def test_llm_booking_plan_with_complete_flight_details_creates_pending_intent(mo
                     }
                 ],
             }
-        if tool_name == "create_booking_intent":
-            return {
-                "booking_intent_id": 123,
-                "airline_name": kwargs["airline_name"],
-                "flight_number": kwargs["flight_number"],
-                "departure_date_time": kwargs["departure_date_time"],
-                "status": "PENDING_CONFIRMATION",
-                "idempotency_key": "idem-123",
-            }
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
@@ -117,10 +108,11 @@ def test_llm_booking_plan_with_complete_flight_details_creates_pending_intent(mo
         "purchase flight of P0206 from SFO to LAX departure time at 2026-06-08 09:30:00",
     )
 
-    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_confirmation"] is None
+    assert resp["pending_booking_search"]["flight_number"] == "P0206"
     assert "which flight number" not in resp["answer"].lower()
-    assert "please confirm" in resp["answer"].lower()
+    assert "book" in resp["answer"].lower()
 
 
 def test_transaction_request_with_payment_word_does_not_enter_policy_rag(monkeypatch):

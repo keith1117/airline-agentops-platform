@@ -26,7 +26,7 @@ def test_tool_registry_records_tool_risk_categories():
     assert registry.risk_for("write_tool") == "controlled_write"
 
 
-def test_bounded_react_booking_preparation_searches_then_creates_pending_intent(monkeypatch):
+def test_bounded_react_booking_preparation_searches_then_returns_bookable_selection(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
     calls = []
@@ -61,13 +61,6 @@ def test_bounded_react_booking_preparation_searches_then_creates_pending_intent(
                     },
                 ],
             }
-        if tool_name == "create_booking_intent":
-            return {
-                "booking_intent_id": 321,
-                "status": "PENDING_CONFIRMATION",
-                "idempotency_key": "idem-321",
-                **kwargs,
-            }
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
@@ -78,16 +71,13 @@ def test_bounded_react_booking_preparation_searches_then_creates_pending_intent(
         "Find the cheapest United flight from SFO to LAX next month and prepare a booking.",
     )
 
-    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
-    assert calls[1][1]["flight_number"] == "P0206"
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_confirmation"] is None
+    assert resp["pending_booking_search"]["flight_number"] == "P0206"
     assert resp["execution"]["runtime_mode_used"] == "bounded_react"
-    assert resp["execution"]["stop_reason"] == "confirmation_required"
-    assert resp["execution"]["confirmation_required"] is True
+    assert resp["execution"]["stop_reason"] == "booking_search_ready"
+    assert resp["execution"]["confirmation_required"] is False
     assert [step["type"] for step in resp["execution"]["trajectory"]] == [
-        "decision_summary",
-        "action",
-        "observation",
         "decision_summary",
         "action",
         "observation",
@@ -134,8 +124,6 @@ def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypat
                     },
                 ],
             }
-        if tool_name == "create_booking_intent":
-            return {"booking_intent_id": 14, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-14", **kwargs}
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
@@ -146,10 +134,10 @@ def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypat
         "Find the cheapest United flight from JFK to ORD on August and prepare a booking.",
     )
 
-    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
-    assert calls[1][1]["flight_number"] == "SYN00014"
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_booking_search"]["flight_number"] == "SYN00014"
     assert "SYN00014" in resp["answer"]
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert resp["pending_confirmation"] is None
 
 
 def test_bounded_react_this_year_request_uses_period_before_selecting_cheapest(monkeypatch):
@@ -191,8 +179,6 @@ def test_bounded_react_this_year_request_uses_period_before_selecting_cheapest(m
                     },
                 ],
             }
-        if tool_name == "create_booking_intent":
-            return {"booking_intent_id": 38, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-38", **kwargs}
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
@@ -203,13 +189,13 @@ def test_bounded_react_this_year_request_uses_period_before_selecting_cheapest(m
         "Find the cheapest United flight from JFK to ORD this year and prepare a booking.",
     )
 
-    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
-    assert calls[1][1]["flight_number"] == "SYN00038"
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_booking_search"]["flight_number"] == "SYN00038"
     assert "SYN00038" in resp["answer"]
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert resp["pending_confirmation"] is None
 
 
-def test_bounded_react_explicit_flight_number_uses_flight_filter_and_creates_intent(monkeypatch):
+def test_bounded_react_explicit_flight_number_uses_flight_filter_and_returns_bookable_result(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
     calls = []
@@ -235,8 +221,6 @@ def test_bounded_react_explicit_flight_number_uses_flight_filter_and_creates_int
                     }
                 ],
             }
-        if tool_name == "create_booking_intent":
-            return {"booking_intent_id": 58, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-58", **kwargs}
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
@@ -247,10 +231,10 @@ def test_bounded_react_explicit_flight_number_uses_flight_filter_and_creates_int
         "purchase flight of SYN00058 on 2026-07-23",
     )
 
-    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
-    assert calls[1][1]["flight_number"] == "SYN00058"
-    assert calls[1][1]["departure_date_time"] == "2026-07-23 16:00:00"
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_booking_search"]["flight_number"] == "SYN00058"
+    assert resp["pending_booking_search"]["departure_date_time"] == "2026-07-23 16:00:00"
+    assert resp["pending_confirmation"] is None
 
 
 def test_bounded_react_no_flights_does_not_create_booking_intent(monkeypatch):
@@ -315,7 +299,7 @@ def test_bounded_react_cancel_request_returns_preview_not_direct_cancellation(mo
     assert "confirm" in resp["answer"].lower()
 
 
-def test_booking_this_one_uses_recent_single_flight_result(monkeypatch):
+def test_booking_this_one_uses_recent_single_flight_result_without_creating_intent(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -339,17 +323,15 @@ def test_booking_this_one_uses_recent_single_flight_result(monkeypatch):
 
     def fake_call(role, tool_name, **kwargs):
         calls.append((tool_name, kwargs))
-        if tool_name == "create_booking_intent":
-            return {"booking_intent_id": 58, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-58", **kwargs}
         raise AssertionError(f"unexpected tool call {tool_name}")
 
     monkeypatch.setattr(agent.registry, "call", fake_call)
 
     resp = agent.customer_chat("bounded-book-this-one", "testcustomer@nyu.edu", "book this one")
 
-    assert [name for name, _ in calls] == ["create_booking_intent"]
-    assert calls[0][1]["flight_number"] == "SYN00058"
-    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+    assert calls == []
+    assert resp["pending_booking_search"]["flight_number"] == "SYN00058"
+    assert resp["pending_confirmation"] is None
 
 
 def test_bounded_react_respects_max_agent_steps(monkeypatch):

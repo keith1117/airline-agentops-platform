@@ -205,10 +205,10 @@ def _agent_display_content(message: Dict[str, Any], table: Optional[Dict[str, An
     if table and meta.get("tables"):
         total = table.get("total", 0)
         return f"{table['title']} retrieved {total} row{'s' if total != 1 else ''} from the database."
-    if meta.get("pending_confirmation"):
-        pending = meta["pending_confirmation"]
+    if meta.get("pending_booking_search"):
+        pending = meta["pending_booking_search"]
         return (
-            f"Pending mock booking created for {pending.get('airline_name')} "
+            f"Bookable flight found: {pending.get('airline_name')} "
             f"{pending.get('flight_number')} at {pending.get('departure_date_time')}."
         )
     return content
@@ -522,7 +522,7 @@ def customer_agent():
                 },
             )
             append_agent_message(chat_key, "assistant", result.get("answer", ""), result)
-        return redirect(url_for("customer_agent"))
+        return redirect(url_for("customer_agent", _anchor="agent-bottom"))
 
     return render_template(
         "customer_agent.html",
@@ -546,7 +546,7 @@ def customer_agent_confirm():
         },
     )
     append_agent_message(chat_key, "assistant", result.get("message", str(result)), result)
-    return redirect(url_for("customer_agent"))
+    return redirect(url_for("customer_agent", _anchor="agent-bottom"))
 
 
 @app.post("/customer/agent/confirm-cancellation")
@@ -570,15 +570,17 @@ def customer_agent_confirm_cancellation():
             f"Cancellation fee ${result['cancellation_fee']:.2f}; estimated refund ${result['refund_amount']:.2f}."
         )
     append_agent_message(chat_key, "assistant", answer, result)
-    return redirect(url_for("customer_agent"))
+    return redirect(url_for("customer_agent", _anchor="agent-bottom"))
 
 @app.route("/customer/search", methods=["GET", "POST"])
 def customer_search():
-    if request.method == "GET":
+    if request.method == "GET" and not request.args:
         return render_template("customer_search.html", rows=[])
-    dep = request.form.get("depart", "").upper().strip()
-    arr = request.form.get("arrive", "").upper().strip()
-    date = request.form.get("date", "").strip()
+    source = request.form if request.method == "POST" else request.args
+    dep = source.get("depart", "").upper().strip()
+    arr = source.get("arrive", "").upper().strip()
+    date = source.get("date", "").strip()
+    flight_number = source.get("flight_number", "").strip()
     sql = (
         "SELECT airline_name, flight_number, departure_date_time, arrival_date_time, base_price, departure_airport, arrival_airport, status "
         "FROM Flight WHERE departure_date_time >= NOW() AND status != 'CANCELLED'"
@@ -586,6 +588,7 @@ def customer_search():
     args = []
     if dep: sql += " AND departure_airport=%s"; args.append(dep)
     if arr: sql += " AND arrival_airport=%s"; args.append(arr)
+    if flight_number: sql += " AND flight_number=%s"; args.append(flight_number)
     if date: sql += " AND DATE(departure_date_time)=%s"; args.append(date)
     sql += " ORDER BY departure_date_time"
     with conn.cursor() as cur:
@@ -788,7 +791,7 @@ def staff_copilot():
                 },
             )
             append_agent_message(chat_key, "assistant", result.get("answer", ""), result)
-        return redirect(url_for("staff_copilot"))
+        return redirect(url_for("staff_copilot", _anchor="agent-bottom"))
 
     return render_template(
         "staff_copilot.html",

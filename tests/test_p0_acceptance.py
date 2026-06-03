@@ -45,7 +45,7 @@ def test_customer_policy_question_has_citation(agent):
     assert "cancelled" in resp["answer"].lower()
 
 
-def test_customer_booking_requires_confirmation_then_issues_ticket(agent):
+def test_customer_booking_request_returns_bookable_search_result_without_issuing_ticket(agent):
     search_resp = agent.customer_chat(
         "p0-booking-search",
         "testcustomer@nyu.edu",
@@ -59,18 +59,10 @@ def test_customer_booking_requires_confirmation_then_issues_ticket(agent):
         f"Book United flight {flight['flight_number']} at {flight['departure_date_time']}",
     )
 
-    pending = booking_resp["pending_confirmation"]
-    assert pending
-    assert pending["status"] == "PENDING_CONFIRMATION"
-
-    confirm_resp = agent.confirm_booking(
-        pending["booking_intent_id"],
-        "testcustomer@nyu.edu",
-        pending["idempotency_key"],
-    )
-
-    assert confirm_resp["status"] == "CONFIRMED"
-    assert confirm_resp["ticket_id"]
+    assert booking_resp["pending_confirmation"] is None
+    assert booking_resp["pending_booking_search"]["flight_number"] == flight["flight_number"]
+    assert not any(call["name"] == "create_booking_intent" for call in booking_resp["tool_calls"])
+    assert "search flights page" in booking_resp["answer"].lower()
 
 
 def test_staff_copilot_uses_staff_analytics_tools(agent):
@@ -99,4 +91,3 @@ def test_staff_chat_does_not_execute_customer_booking(agent):
     )
 
     assert not any(call["name"] in {"create_booking_intent", "confirm_booking"} for call in resp["tool_calls"])
-

@@ -74,6 +74,7 @@ class ReActAgent:
         citations: List[Dict[str, Any]] = []
         pending = None
         pending_cancellation = None
+        pending_booking_search = None
         answer = ""
         error = None
         reasoning = "Classify customer request and call the safest allowed tool."
@@ -86,6 +87,7 @@ class ReActAgent:
                 answer = routed["answer"]
                 pending = routed.get("pending_confirmation")
                 pending_cancellation = routed.get("pending_cancellation")
+                pending_booking_search = routed.get("pending_booking_search")
             elif self._is_identity_question(lower):
                 answer = f"You are currently logged in as customer {customer_email}."
                 execution["request_path"] = "identity"
@@ -105,6 +107,7 @@ class ReActAgent:
                 citations = routed.get("citations", [])
                 pending = routed.get("pending_confirmation")
                 pending_cancellation = routed.get("pending_cancellation")
+                pending_booking_search = routed.get("pending_booking_search")
             elif any(word in lower for word in ["trip", "order", "ticket", "my flight", "我的", "订单"]):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("customer", "get_customer_trips", customer_email=customer_email)
@@ -139,6 +142,7 @@ class ReActAgent:
                 routed = self._handle_booking_request({}, message, customer_email, tool_calls, execution, session_id=session_id)
                 answer = routed["answer"]
                 pending = routed.get("pending_confirmation")
+                pending_booking_search = routed.get("pending_booking_search")
             elif self._is_customer_search_question(lower, message):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 dep, arr = parse_airports(message)
@@ -188,6 +192,7 @@ class ReActAgent:
             "citations": citations,
             "tool_calls": tool_calls,
             "pending_confirmation": pending,
+            "pending_booking_search": pending_booking_search,
             "pending_cancellation": pending_cancellation,
             "execution": execution,
         }
@@ -326,7 +331,15 @@ class ReActAgent:
         if self._has_specific_booking_target(message):
             self._trajectory_decision(execution, "The user provided a specific booking target or referred to the prior flight result.")
             routed = self._handle_booking_request({}, message, customer_email, tool_calls, execution, session_id=session_id)
-            if routed.get("pending_confirmation"):
+            if routed.get("pending_booking_search"):
+                execution.update(
+                    {
+                        "stop_reason": "booking_search_ready",
+                        "confirmation_required": False,
+                        "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
+                    }
+                )
+            elif routed.get("pending_confirmation"):
                 execution.update(
                     {
                         "stop_reason": "confirmation_required",
@@ -365,39 +378,21 @@ class ReActAgent:
             self._append_final_answer(execution, answer)
             return {"answer": answer}
 
-        self._bounded_call(
-            "customer",
-            "create_booking_intent",
-            tool_calls,
-            execution,
-            decision_summary=(
-                f"Selected the lowest-price bookable flight {selected['flight_number']} "
-                "and will create a pending booking intent only."
-            ),
-            customer_email=customer_email,
-            airline_name=selected["airline_name"],
-            flight_number=selected["flight_number"],
-            departure_date_time=_normalize_datetime(selected["departure_date_time"]) or str(selected["departure_date_time"]),
-        )
-        result = tool_calls[-1]["result"]
-        if "error" in result:
-            execution.update({"stop_reason": "tool_error"})
-            return {"answer": result["error"]}
-
         execution.update(
             {
-                "stop_reason": "confirmation_required",
-                "confirmation_required": True,
+                "stop_reason": "booking_search_ready",
+                "confirmation_required": False,
                 "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
             }
         )
+        pending_booking_search = self._booking_search_payload(selected)
         answer = (
             f"I found the cheapest matching bookable flight: {selected['airline_name']} {selected['flight_number']} "
             f"from {selected['departure_airport']} to {selected['arrival_airport']} departing at "
             f"{selected['departure_date_time']} for ${selected['base_price']}. "
-            "I created a pending booking intent. Please confirm before the ticket is issued."
+            "Use Book to continue on the Search Flights page and complete the purchase manually."
         )
-        return {"answer": answer, "pending_confirmation": result}
+        return {"answer": answer, "pending_booking_search": pending_booking_search}
 
     def _bounded_call(
         self,
@@ -700,7 +695,7 @@ class ReActAgent:
         if self._is_book_this_one_request(message.lower()) and session_id:
             recent_flights = self._recent_search_flights(session_id)
             if len(recent_flights) == 1:
-                return self._create_pending_booking(customer_email, recent_flights[0], tool_calls)
+                return self._prepare_booking_search(recent_flights[0])
             if len(recent_flights) > 1:
                 return {
                     "answer": (
@@ -769,10 +764,10 @@ class ReActAgent:
                 if flights:
                     answer += "\n\n" + self._format_flights(search_result or {})
                 return {"answer": answer}
-            return self._create_pending_booking(customer_email, matches[0], tool_calls)
+            return self._prepare_booking_search(matches[0])
 
         if len(matches) == 1:
-            return self._create_pending_booking(customer_email, matches[0], tool_calls)
+            return self._prepare_booking_search(matches[0])
 
         if flight_number and not matches:
             date_suffix = f" on {travel_date}" if travel_date else ""
@@ -788,9 +783,30 @@ class ReActAgent:
 
         return {
             "answer": (
-                "Which flight should I create a pending booking for? I need a bookable flight number and departure time. "
-                "You can also provide a route and date so I can search available flights first."
+                "Which flight should I help you find? Please provide a route, date, or flight number so I can "
+                "show matching flights before you purchase on the Search Flights page."
             )
+        }
+
+    def _prepare_booking_search(self, flight: Dict[str, Any]) -> Dict[str, Any]:
+        answer = (
+            f"I found {flight['airline_name']} flight {flight['flight_number']} from "
+            f"{flight['departure_airport']} to {flight['arrival_airport']} departing at "
+            f"{flight['departure_date_time']} for ${flight['base_price']}. "
+            "Use Book to continue on the Search Flights page and complete the purchase manually."
+        )
+        return {"answer": answer, "pending_booking_search": self._booking_search_payload(flight)}
+
+    @staticmethod
+    def _booking_search_payload(flight: Dict[str, Any]) -> Dict[str, Any]:
+        departure_date_time = _normalize_datetime(flight.get("departure_date_time")) or str(flight.get("departure_date_time"))
+        return {
+            "airline_name": flight.get("airline_name"),
+            "flight_number": flight.get("flight_number"),
+            "departure_airport": flight.get("departure_airport"),
+            "arrival_airport": flight.get("arrival_airport"),
+            "departure_date_time": departure_date_time,
+            "departure_date": departure_date_time[:10] if departure_date_time else "",
         }
 
     def _create_pending_booking(
@@ -1105,7 +1121,7 @@ class ReActAgent:
     def _customer_scope_fallback() -> str:
         return (
             "I can only help with airline booking tasks, including flight search, your trips, airline policy questions, "
-            "travel preferences, and pending mock bookings. I can't answer that request from this airline system."
+            "travel preferences, and booking handoffs. I can't answer that request from this airline system."
         )
 
     @staticmethod

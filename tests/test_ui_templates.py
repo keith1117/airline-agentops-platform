@@ -107,6 +107,20 @@ def test_agent_templates_render_structured_messages():
                 "tool_calls": [{"name": "answer_policy_question", "args": {"question": "refund"}, "result": {"citations": [1]}}],
             },
         },
+        {
+            "role": "assistant",
+            "content": "Flight found",
+            "meta": {
+                "pending_booking_search": {
+                    "airline_name": "United",
+                    "flight_number": "P0206",
+                    "departure_airport": "SFO",
+                    "arrival_airport": "LAX",
+                    "departure_date": "2026-06-08",
+                    "departure_date_time": "2026-06-08 09:30:00",
+                }
+            },
+        },
     ])
 
     customer = render_template("customer_agent.html", messages=messages, agent_url="http://agent:8001")
@@ -116,6 +130,10 @@ def test_agent_templates_render_structured_messages():
     assert "citation-pill" in customer
     assert "Policy Center" in customer
     assert "Tool calls" not in customer
+    assert "Confirm Mock Booking" not in customer
+    assert "Book" in customer
+    assert "#agent-bottom" in customer
     assert "agent-table" in staff
     assert "Tool calls" in staff
     assert "Policy Center" in staff
+    assert "#agent-bottom" in staff

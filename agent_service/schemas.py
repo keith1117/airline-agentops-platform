@@ -32,6 +32,7 @@ class AgentResponse(BaseModel):
     citations: List[Dict[str, Any]] = []
     tool_calls: List[Dict[str, Any]] = []
     pending_confirmation: Optional[Dict[str, Any]] = None
+    pending_booking_search: Optional[Dict[str, Any]] = None
     pending_cancellation: Optional[Dict[str, Any]] = None
     tables: Optional[List[Dict[str, Any]]] = None
 

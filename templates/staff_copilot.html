@@ -70,7 +70,9 @@
     {% endfor %}
   </div>
 
-  <form method="post" class="agent-input">
+  <div id="agent-bottom"></div>
+
+  <form method="post" action="{{ url_for('staff_copilot', _anchor='agent-bottom') }}" class="agent-input">
     <textarea name="message" rows="3"></textarea>
     <button type="submit">Send</button>
   </form>

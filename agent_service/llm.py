@@ -150,7 +150,9 @@ class LLMRouter:
             "Return only JSON with keys intent, tool, args, needs_clarification, clarification_question. "
             "Choose one registered tool or null. Do not execute SQL or transactions. "
             "Use answer_policy_question only for informational airline policy questions. "
-            "Use create_booking_intent only for requests to start a booking and set needs_clarification if flight details are missing. "
+            "Use create_booking_intent only as a routing label for booking or purchase requests; "
+            "the backend must only display a bookable flight and hand off to the Search Flights page, not complete checkout in chat. "
+            "Set needs_clarification if flight details are missing. "
             "For month-level flight searches, put the resolved month in args.month as YYYY-MM when the user states a month. "
             "For year-level flight searches, put args.period as this_year or next_year. Do not put a bare year in travel_date. "
             "Use cancel_customer_ticket only when the customer asks to cancel a specific existing ticket and a ticket_id is available; otherwise ask for the ticket number. "
@@ -195,7 +197,8 @@ class NativeToolCallingRouter:
             "You are an airline AgentOps tool router. Choose a tool only when the user request clearly "
             "belongs to airline booking, customer trips, airline policy, travel preferences, or staff analytics. "
             "Do not call tools for unrelated requests. Never confirm a booking directly. "
-            "Use policy tools only for informational policy questions; booking and payment transactions must use booking tools."
+            "Use policy tools only for informational policy questions. For booking or payment transactions, route to booking tools "
+            "only so the backend can display a flight and hand off to manual checkout; do not imply chat can complete a purchase."
         )
         call = self.client.complete_tool_call(
             [
@@ -240,7 +243,7 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
             "required": ["ticket_id"],
         },
         "create_booking_intent": {
-            "description": "Create a pending booking intent for a specific flight after flight details are known.",
+            "description": "Route a customer booking or purchase request for a specific flight. The backend displays a bookable flight and hands off to the Search Flights page instead of completing checkout in chat.",
             "properties": {
                 "airline_name": {"type": "string"},
                 "flight_number": {"type": "string"},

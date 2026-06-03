@@ -2,7 +2,7 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1/P2/P3.1 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, pending booking confirmation, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style booking preparation, trajectory export, Docker Compose, observability, and acceptance tests.
+This project demonstrates a stable **P0/P1/P2/P3.1 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, search-page booking handoff, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style booking preparation, trajectory export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
@@ -16,7 +16,7 @@ P2 also includes a deterministic synthetic data generator. By default it generat
 
 The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
 
-P3.1 adds a bounded ReAct-style booking-preparation runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, create a pending booking intent, and stop for human confirmation. It remains bounded by `MAX_AGENT_STEPS`, role-based tools, and human-confirmed transaction guards.
+P3.1 adds a bounded ReAct-style booking-preparation runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, and stop with a `Book` handoff to the Search Flights page. Chat does not issue tickets or complete payment; the customer reviews the exact flight and purchases manually through the existing booking page.
 
 Natural-language flight search supports date-level, `next month`, year-level filters such as `this year` / `next year`, and month-level filters such as `August` or `August 2027`. If a month is provided without a year, the Agent resolves it to the nearest future occurrence of that month before querying inventory.
 
@@ -48,10 +48,10 @@ Customer Booking Agent at `/customer/agent`:
 
 - Search flights with natural language: `Find flights from SFO to LAX next month`
 - Ask RAG policy questions: `Can I get a refund if my flight is cancelled?`
-- Create a pending mock booking: `Book United flight P0206 at 2026-06-08 09:30:00`
-- Confirm the pending booking before a mock ticket is written
+- Ask to book a specific flight: `Book United flight P0206 at 2026-06-08 09:30:00`
+- Review the returned flight and use `Book` to continue on the Search Flights page before entering payment details
 - Cancel an existing ticket with refund rules based on flight status
-- Display customer-facing answers, citations, structured flight results, and confirmation button; internal tool calls are still recorded in backend traces
+- Display customer-facing answers, citations, structured flight results, and booking handoff button; internal tool calls are still recorded in backend traces
 - P1 Memory prompt: `Remember I prefer United and usually fly SFO to LAX under 500`
 - Later memory-backed search: `Find flights next month`
 
@@ -132,21 +132,19 @@ The Agent runtime separates model planning from business execution:
 
 Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
 
-The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for multi-step customer requests. In booking-preparation mode, the Agent can search flights, observe database-backed results, select the cheapest bookable candidate, create a pending booking intent, and then stop for explicit user confirmation.
+The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for multi-step customer requests. In booking-preparation mode, the Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. The actual purchase remains a user-driven web workflow with payment fields.
 
-P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. `confirm_booking` follows the same high-risk action boundary.
+P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. Booking purchase follows the same high-risk boundary by handing off to the Search Flights page instead of completing inside chat.
 
 The Agent records ReAct-style trajectories in execution metadata and trace export:
 
 ```json
 [
-  {"type": "decision_summary", "content": "Need available bookable flights before preparing a booking intent."},
+  {"type": "decision_summary", "content": "Need available bookable flights before preparing a booking handoff."},
   {"type": "action", "tool": "search_flights", "args": {"departure_airport": "SFO", "arrival_airport": "LAX"}},
   {"type": "observation", "tool": "search_flights", "content": {"count": 1}},
-  {"type": "decision_summary", "content": "Selected the lowest-price bookable flight and will create a pending booking intent only."},
-  {"type": "action", "tool": "create_booking_intent", "args": {"flight_number": "P0206"}},
-  {"type": "observation", "tool": "create_booking_intent", "content": {"status": "PENDING_CONFIRMATION"}},
-  {"type": "final_answer", "content": "I created a pending booking intent. Please confirm before the ticket is issued."}
+  {"type": "decision_summary", "content": "Selected the lowest-price bookable flight and will route the customer to manual checkout."},
+  {"type": "final_answer", "content": "I found a bookable flight. Use Book to continue on the Search Flights page."}
 ]
 ```
 
@@ -564,7 +562,7 @@ Future advanced eval design:
 | --- | --- |
 | Citation correctness | Add tests that verify retrieved policy section IDs match expected evidence, not only citation presence. |
 | Tool argument accuracy | Compare generated tool arguments against expected airport, airline, date, budget, and role constraints. |
-| Multi-step task success | Add tasks requiring memory lookup, search, booking intent creation, and confirmation safety checks. |
+| Multi-step task success | Add tasks requiring memory lookup, search, booking-page handoff, and confirmation safety checks. |
 | Regression tracking | Store eval summaries per run and compare task success, tool accuracy, citation correctness, latency, and error rate over time. |
 | Failure clustering | Group failed traces by failure mode: wrong tool, missing citation, unsafe action, bad arguments, timeout, or no-context hallucination. |
 
@@ -575,7 +573,7 @@ Future Agentic RL design:
 | Task completion | Reward final answers that satisfy the target task. |
 | Correct tool selection | Reward choosing the expected tool for the user intent. |
 | Tool argument correctness | Reward valid route/date/customer/airline parameters. |
-| Safety and permission compliance | Penalize staff/customer role violations and booking without confirmation. |
+| Safety and permission compliance | Penalize staff/customer role violations and any attempt to complete booking inside chat. |
 | Citation correctness | Reward policy answers grounded in the right knowledge chunks. |
 | Efficiency | Penalize unnecessary steps, retries, latency, and avoidable tool calls. |
 | Controlled failure | Reward saying no or returning no-context fallback when evidence is missing. |
@@ -595,8 +593,8 @@ P0 acceptance covers:
 
 - Customer flight search calls `search_flights`
 - RAG policy answer returns citations
-- Booking requires `PENDING_CONFIRMATION`
-- Confirmation writes a mock ticket
+- Customer Agent booking requests return a bookable flight handoff instead of issuing tickets in chat
+- Search Flights purchase flow writes a mock ticket only after the user manually reviews the flight and submits payment details
 - Staff copilot calls staff analytics tools
 - Customer cannot call staff-only tools
 - Staff chat does not execute customer booking tools
