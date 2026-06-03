@@ -79,7 +79,7 @@ class ReActAgent:
         error = None
         reasoning = "Classify customer request and call the safest allowed tool."
         execution = self._execution()
-        execution["runtime_mode_used"] = self.settings.agent_runtime_mode
+        execution["runtime_mode_used"] = self._initial_runtime_mode_used()
         try:
             lower = message.lower()
             if self._should_use_bounded_customer_runtime(lower, message):
@@ -205,7 +205,7 @@ class ReActAgent:
         error = None
         reasoning = "Classify staff analytics request and call staff-only reporting tools."
         execution = self._execution()
-        execution["runtime_mode_used"] = self.settings.agent_runtime_mode
+        execution["runtime_mode_used"] = self._initial_runtime_mode_used()
         try:
             lower = message.lower()
             if self._is_identity_question(lower):
@@ -283,6 +283,9 @@ class ReActAgent:
         if mode == "bounded_react":
             return self._is_booking_preparation_goal(lower)
         return self._is_booking_preparation_goal(lower) and ("cheapest" in lower or "prepare" in lower)
+
+    def _initial_runtime_mode_used(self) -> str:
+        return "single_step" if self.settings.agent_runtime_mode == "auto" else self.settings.agent_runtime_mode
 
     def _should_use_bounded_staff_runtime(self, lower: str) -> bool:
         mode = self.settings.agent_runtime_mode

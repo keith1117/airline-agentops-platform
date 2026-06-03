@@ -2,7 +2,7 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1/P2/P3.3 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, search-page booking handoff, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style customer and staff workflows, trajectory export, Docker Compose, observability, and acceptance tests.
+This project demonstrates a stable **P0/P1/P2/P3.4 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, search-page booking handoff, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style customer and staff workflows, optional runtime auto-selection, trajectory export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
@@ -16,7 +16,7 @@ P2 also includes a deterministic synthetic data generator. By default it generat
 
 The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
 
-P3 adds a bounded ReAct-style runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, and stop with a `Book` handoff to the Search Flights page. Chat does not issue tickets or complete payment; the customer reviews the exact flight and purchases manually through the existing booking page. The staff copilot can also run a bounded multi-tool analysis for questions that combine route performance and review quality.
+P3 adds a bounded ReAct-style runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, and stop with a `Book` handoff to the Search Flights page. Chat does not issue tickets or complete payment; the customer reviews the exact flight and purchases manually through the existing booking page. The staff copilot can also run a bounded multi-tool analysis for questions that combine route performance and review quality. P3.4 adds optional `AGENT_RUNTIME_MODE=auto`, which keeps simple requests on single-step routing and sends selected multi-step requests to bounded ReAct.
 
 Natural-language flight search supports date-level, `next month`, year-level filters such as `this year` / `next year`, and month-level filters such as `August` or `August 2027`. If a month is provided without a year, the Agent resolves it to the nearest future occurrence of that month before querying inventory.
 
@@ -109,7 +109,7 @@ Supported values:
 
 - `TOOL_ROUTER_MODE=auto | native | json | deterministic`
 - `AGENT_ROUTER_MODE=auto | deterministic | llm`
-- `AGENT_RUNTIME_MODE=single_step | bounded_react`
+- `AGENT_RUNTIME_MODE=auto | single_step | bounded_react`
 - `RAG_RETRIEVER_MODE=auto | keyword | embedding`
 - `POLICY_ANSWER_MODE=auto | extractive | llm`
 
@@ -132,7 +132,7 @@ The Agent runtime separates model planning from business execution:
 
 Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
 
-The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for selected multi-step requests. In booking-preparation mode, the customer Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. For staff analytics, the copilot can combine `get_route_performance` and `analyze_reviews` observations before returning a recommendation. The actual purchase remains a user-driven web workflow with payment fields.
+The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for selected multi-step requests. `AGENT_RUNTIME_MODE=auto` keeps simple requests on single-step routing while routing recognized multi-step booking-preparation and staff route-review analysis requests into bounded ReAct. In booking-preparation mode, the customer Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. For staff analytics, the copilot can combine `get_route_performance` and `analyze_reviews` observations before returning a recommendation. The actual purchase remains a user-driven web workflow with payment fields.
 
 P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. Booking purchase follows the same high-risk boundary by handing off to the Search Flights page instead of completing inside chat.
 
@@ -162,6 +162,12 @@ To explicitly demo the P3 bounded runtime in Docker:
 
 ```bash
 AGENT_RUNTIME_MODE=bounded_react MAX_AGENT_STEPS=4 docker compose up --build
+```
+
+To demo P3.4 runtime auto-selection:
+
+```bash
+AGENT_RUNTIME_MODE=auto MAX_AGENT_STEPS=4 docker compose up --build
 ```
 
 Then open the demo endpoints:
@@ -337,7 +343,7 @@ python -m pytest tests/test_p3_bounded_react.py -q
 Current P3 result:
 
 ```text
-15 passed
+18 passed
 ```
 
 Agent QA Harness:
@@ -501,9 +507,9 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `61 passed, 18 skipped in 0.56s` |
+| Local fast regression suite | `python -m pytest tests -q` | `64 passed, 18 skipped in 15.18s` |
 | Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `77 passed in 26.52s` |
-| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `15 passed` |
+| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `18 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |

@@ -9,7 +9,7 @@ load_dotenv()
 
 VALID_AGENT_ROUTER_MODES = {"auto", "deterministic", "llm"}
 VALID_TOOL_ROUTER_MODES = {"auto", "native", "json", "deterministic"}
-VALID_AGENT_RUNTIME_MODES = {"single_step", "bounded_react"}
+VALID_AGENT_RUNTIME_MODES = {"auto", "single_step", "bounded_react"}
 VALID_RAG_RETRIEVER_MODES = {"auto", "keyword", "embedding"}
 VALID_POLICY_ANSWER_MODES = {"auto", "extractive", "llm"}
 

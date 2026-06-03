@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--tool-router-mode", choices=["auto", "native", "json", "deterministic"], default=None)
     parser.add_argument("--agent-router-mode", choices=["auto", "deterministic", "llm"], default=None)
-    parser.add_argument("--runtime-mode", choices=["single_step", "bounded_react"], default=None)
+    parser.add_argument("--runtime-mode", choices=["auto", "single_step", "bounded_react"], default=None)
     parser.add_argument("--rag-retriever-mode", choices=["auto", "keyword", "embedding"], default=None)
     parser.add_argument("--policy-answer-mode", choices=["auto", "extractive", "llm"], default=None)
     parser.add_argument("--avoid-recent", action="store_true")

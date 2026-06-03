@@ -57,12 +57,15 @@ def test_default_modes_are_ai_first_auto_with_relevance_gate(monkeypatch):
     assert settings.agent_runtime_mode == "single_step"
 
 
-def test_agent_runtime_mode_supports_single_step_and_bounded_react(monkeypatch):
+def test_agent_runtime_mode_supports_single_step_bounded_react_and_auto(monkeypatch):
     monkeypatch.setenv("AGENT_RUNTIME_MODE", "bounded_react")
     assert config.load_settings().agent_runtime_mode == "bounded_react"
 
     monkeypatch.setenv("AGENT_RUNTIME_MODE", "single_step")
     assert config.load_settings().agent_runtime_mode == "single_step"
+
+    monkeypatch.setenv("AGENT_RUNTIME_MODE", "auto")
+    assert config.load_settings().agent_runtime_mode == "auto"
 
 
 def test_tool_router_mode_supports_native_json_and_legacy_agent_mode(monkeypatch):

@@ -535,3 +535,88 @@ def test_single_step_this_year_search_uses_period_filter(monkeypatch):
 
     assert calls[0][0] == "search_flights"
     assert resp["execution"]["request_path"] == "tool_routing"
+
+
+def test_auto_runtime_keeps_simple_customer_search_on_single_step(monkeypatch):
+    agent = make_agent(Settings(agent_runtime_mode="auto", agent_router_mode="deterministic"))
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            return {"count": 0, "flights": []}
+        if tool_name == "get_user_preferences":
+            return {"preferences": {}}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat("auto-simple-search", "testcustomer@nyu.edu", "Find all flights from JFK to ORD this year")
+
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["execution"]["request_path"] == "tool_routing"
+    assert resp["execution"]["runtime_mode_used"] == "single_step"
+
+
+def test_auto_runtime_routes_complex_customer_booking_goal_to_bounded_react(monkeypatch):
+    agent = make_agent(Settings(agent_runtime_mode="auto", agent_router_mode="deterministic"))
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            return {
+                "count": 1,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "P0206",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "LAX",
+                        "departure_date_time": "2026-07-08 09:30:00",
+                        "arrival_date_time": "2026-07-08 11:05:00",
+                        "base_price": 420.0,
+                        "seats_left": 8,
+                        "status": "ON_TIME",
+                    }
+                ],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "auto-bounded-booking",
+        "testcustomer@nyu.edu",
+        "Find the cheapest United flight from SFO to LAX next month and prepare a booking.",
+    )
+
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["execution"]["request_path"] == "bounded_react"
+    assert resp["execution"]["runtime_mode_used"] == "bounded_react"
+    assert resp["execution"]["stop_reason"] == "booking_search_ready"
+
+
+def test_auto_runtime_routes_complex_staff_analysis_to_bounded_react(monkeypatch):
+    agent = make_agent(Settings(agent_runtime_mode="auto", agent_router_mode="deterministic"))
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((role, tool_name, kwargs))
+        assert role == "staff"
+        if tool_name == "get_route_performance":
+            return {"rows": [{"departure_airport": "SFO", "arrival_airport": "LAX", "tickets": 10, "estimated_revenue": 3000.0}]}
+        if tool_name == "analyze_reviews":
+            return {"summary": [{"flight_number": "P0206", "avg_rating": 2.5, "review_count": 4}], "comments": []}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat("auto-staff-analysis", "alice", "United", "Which route has strong sales but poor reviews?")
+
+    assert [tool_name for _, tool_name, _ in calls] == ["get_route_performance", "analyze_reviews"]
+    assert resp["execution"]["request_path"] == "bounded_react"
+    assert resp["execution"]["runtime_mode_used"] == "bounded_react"
