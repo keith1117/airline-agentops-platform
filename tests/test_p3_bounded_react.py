@@ -237,6 +237,47 @@ def test_bounded_react_explicit_flight_number_uses_flight_filter_and_returns_boo
     assert resp["pending_confirmation"] is None
 
 
+def test_bounded_react_alphanumeric_suffix_flight_number_uses_exact_filter(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            assert kwargs["flight_number"] == "P0DLY"
+            return {
+                "count": 1,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "P0DLY",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "LAX",
+                        "departure_date_time": "2026-07-11 15:00:00",
+                        "arrival_date_time": "2026-07-11 17:00:00",
+                        "base_price": 500.0,
+                        "seats_left": 8,
+                        "status": "DELAYED",
+                    }
+                ],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "bounded-explicit-alphanumeric-flight",
+        "testcustomer@nyu.edu",
+        "I want to book flight P0DLY",
+    )
+
+    assert [name for name, _ in calls] == ["search_flights"]
+    assert resp["pending_booking_search"]["flight_number"] == "P0DLY"
+    assert resp["pending_confirmation"] is None
+    assert "P0DLY" in resp["answer"]
+
+
 def test_bounded_react_no_flights_does_not_create_booking_intent(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)

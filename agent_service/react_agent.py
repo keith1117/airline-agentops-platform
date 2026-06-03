@@ -1138,10 +1138,18 @@ class ReActAgent:
 
     @staticmethod
     def _extract_flight_number(message: str) -> Optional[str]:
-        explicit = re.search(r"\bflight\s*(?:number\s*)?(?:of\s*)?([A-Z]{0,4}\d{2,6})\b", message, re.IGNORECASE)
+        explicit = re.search(
+            r"\bflight\s*(?:number\s*)?(?:of\s*)?((?=[A-Z0-9]*\d)[A-Z0-9]{2,10})\b",
+            message,
+            re.IGNORECASE,
+        )
         if explicit:
             return explicit.group(1).upper()
-        alphanumeric = re.search(r"\b([A-Z]{1,4}\d{2,6})\b", message, re.IGNORECASE)
+        alphanumeric = re.search(
+            r"\b((?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]{2,10})\b",
+            message,
+            re.IGNORECASE,
+        )
         return alphanumeric.group(1).upper() if alphanumeric else None
 
     @staticmethod
