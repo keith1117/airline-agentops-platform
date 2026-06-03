@@ -214,6 +214,10 @@ class ReActAgent:
             elif self._is_policy_question(lower) and not self._is_payment_or_booking_transaction(lower):
                 result = self._call_policy_tool("staff", message, tool_calls, execution, router_used="bypassed")
                 answer = result["answer"]
+            elif self._should_use_bounded_staff_runtime(lower):
+                routed = self._bounded_staff_react(staff_username, airline_name, message, tool_calls, execution)
+                answer = routed["answer"]
+                table = routed.get("tables")
             elif (routed := self._try_staff_llm_route(message, airline_name, tool_calls, execution)) is not None:
                 answer = routed["answer"]
                 table = routed.get("tables")
@@ -280,6 +284,14 @@ class ReActAgent:
             return self._is_booking_preparation_goal(lower)
         return self._is_booking_preparation_goal(lower) and ("cheapest" in lower or "prepare" in lower)
 
+    def _should_use_bounded_staff_runtime(self, lower: str) -> bool:
+        mode = self.settings.agent_runtime_mode
+        if mode not in {"bounded_react", "auto"}:
+            return False
+        route_terms = ["route", "routes", "popular", "performance", "sales", "revenue", "strong", "航线", "销售", "收入"]
+        review_terms = ["review", "reviews", "rating", "ratings", "poor", "worst", "low-rated", "low rated", "差评", "评分"]
+        return any(term in lower for term in route_terms) and any(term in lower for term in review_terms)
+
     @staticmethod
     def _is_booking_preparation_goal(lower: str) -> bool:
         booking_words = ["book", "buy", "purchase", "reserve", "booking", "prepare", "订", "买"]
@@ -287,6 +299,55 @@ class ReActAgent:
         return (
             any(word in lower for word in booking_words) and any(word in lower for word in flight_words)
         ) or bool(re.search(r"\bbook\s+(?:this|that|it|one)\b", lower))
+
+    def _bounded_staff_react(
+        self,
+        staff_username: str,
+        airline_name: str,
+        message: str,
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        execution.update(
+            {
+                "request_path": "bounded_react",
+                "runtime_mode_used": "bounded_react",
+                "router_used": "bounded_controller",
+                "answer_mode_used": "backend_formatter",
+                "step_count": 0,
+                "stop_reason": None,
+                "confirmation_required": False,
+            }
+        )
+        if self.settings.max_agent_steps < 2:
+            execution.update({"stop_reason": "max_steps_reached", "step_count": self.settings.max_agent_steps})
+            self._trajectory_decision(execution, "The bounded staff runtime stopped because this analysis needs two tools.")
+            return {"answer": "I need at least two bounded steps to compare route performance with review quality."}
+
+        route_result = self._bounded_call(
+            "staff",
+            "get_route_performance",
+            tool_calls,
+            execution,
+            decision_summary="Need route performance before comparing demand with customer review quality.",
+            airline_name=airline_name,
+        )
+        review_result = self._bounded_call(
+            "staff",
+            "analyze_reviews",
+            tool_calls,
+            execution,
+            decision_summary="Need review analysis to identify weak customer experience signals.",
+            airline_name=airline_name,
+        )
+        execution.update(
+            {
+                "stop_reason": "final_answer",
+                "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
+            }
+        )
+        answer, table = self._format_staff_route_review_analysis(route_result, review_result)
+        return {"answer": answer, "tables": table}
 
     def _bounded_customer_react(
         self,
@@ -1356,6 +1417,70 @@ class ReActAgent:
         if not summary and not comments:
             return "No reviews found."
         return "Lowest-rated review summary: " + "; ".join(str(row) for row in summary[:5])
+
+    @staticmethod
+    def _format_staff_route_review_analysis(
+        route_result: Dict[str, Any],
+        review_result: Dict[str, Any],
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        routes = route_result.get("rows") or []
+        reviews = review_result.get("summary") or []
+        if not routes and not reviews:
+            return "No route performance or review rows were found.", []
+
+        top_route = routes[0] if routes else {}
+        worst_review = reviews[0] if reviews else {}
+        table: List[Dict[str, Any]] = []
+        lines = []
+
+        if top_route:
+            route_label = f"{top_route.get('departure_airport')} -> {top_route.get('arrival_airport')}"
+            tickets = top_route.get("tickets", 0)
+            revenue = float(top_route.get("estimated_revenue") or 0)
+            lines.append(
+                f"Strongest route by ticket volume: {route_label} with {tickets} tickets "
+                f"and estimated revenue ${revenue:.2f}."
+            )
+            table.append(
+                {
+                    "signal": "Strong route",
+                    "route": route_label,
+                    "tickets": tickets,
+                    "estimated_revenue": revenue,
+                    "flight_number": "",
+                    "avg_rating": "",
+                    "review_count": "",
+                }
+            )
+
+        if worst_review:
+            flight_number = worst_review.get("flight_number")
+            avg_rating = worst_review.get("avg_rating")
+            review_count = worst_review.get("review_count", 0)
+            lines.append(
+                f"Lowest-rated reviewed flight: {flight_number} with average rating "
+                f"{float(avg_rating):.2f} across {review_count} reviews."
+            )
+            table.append(
+                {
+                    "signal": "Lowest-rated reviewed flight",
+                    "route": "",
+                    "tickets": "",
+                    "estimated_revenue": "",
+                    "flight_number": flight_number,
+                    "avg_rating": float(avg_rating),
+                    "review_count": review_count,
+                }
+            )
+
+        if routes and reviews:
+            lines.append(
+                "Recommendation: prioritize investigation where high-demand routes and low-rated flight "
+                "experience overlap; the current tools provide route demand and flight review signals as "
+                "separate observations."
+            )
+
+        return "\n\n".join(lines), table
 
 
 def _normalize_flight_number(value: Any) -> Optional[str]:
