@@ -236,7 +236,7 @@ python -m pytest tests -q
 Current local fast result:
 
 ```text
-56 passed, 17 skipped
+58 passed, 17 skipped
 ```
 
 P0 acceptance tests with local MySQL:
@@ -315,7 +315,7 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified Docker MySQL result:
 
 ```text
-73 passed
+75 passed
 ```
 
 P3.1 bounded runtime tests:
@@ -328,6 +328,37 @@ Current P3.1 result:
 
 ```text
 13 passed
+```
+
+Agent QA Harness:
+
+```bash
+python -m agent_service.run_agent_qa \
+  --seed 42 \
+  --count 24 \
+  --tool-router-mode deterministic \
+  --runtime-mode bounded_react \
+  --rag-retriever-mode keyword \
+  --policy-answer-mode extractive
+```
+
+The QA harness generates reproducible customer and staff prompt variants from a seeded template pool, avoids recently generated prompts when `--avoid-recent` is passed, checks expected tools / forbidden tools / citations / pending confirmations / request paths, and writes JSONL reports to `logs/agent_qa_runs/`.
+
+To verify the real native OpenAI tool-calling path when API credentials are configured:
+
+```bash
+python -m agent_service.run_agent_qa \
+  --seed 42 \
+  --count 12 \
+  --tool-router-mode native \
+  --runtime-mode bounded_react \
+  --avoid-recent
+```
+
+Use `--fail-on-failures` when running the QA harness as a CI-style regression gate. The current deterministic smoke result against Docker MySQL is:
+
+```text
+10 passed, 0 failed
 ```
 
 P0.5 UI smoke result:
@@ -460,9 +491,10 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `56 passed, 17 skipped in 0.72s` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `73 passed in 28.72s` |
+| Local fast regression suite | `python -m pytest tests -q` | `58 passed, 17 skipped in 0.57s` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `75 passed in 43.09s` |
 | P3.1 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `13 passed` |
+| Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
