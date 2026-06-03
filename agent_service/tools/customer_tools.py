@@ -18,7 +18,16 @@ def _serialize_rows(rows):
     return out
 
 
-def _date_bounds(period: Optional[str]):
+def _date_bounds(period: Optional[str], month: Optional[str] = None):
+    if month:
+        parsed = re.match(r"^(\d{4})-(\d{2})$", month)
+        if parsed:
+            year = int(parsed.group(1))
+            month_num = int(parsed.group(2))
+            if 1 <= month_num <= 12:
+                first = date(year, month_num, 1)
+                second = date(year + (month_num == 12), 1 if month_num == 12 else month_num + 1, 1)
+                return first.isoformat(), second.isoformat()
     today = date.today()
     if period == "next_month":
         first = date(today.year + (today.month == 12), 1 if today.month == 12 else today.month + 1, 1)
@@ -33,6 +42,7 @@ def search_flights(
     airline_name: Optional[str] = None,
     flight_number: Optional[str] = None,
     travel_date: Optional[str] = None,
+    month: Optional[str] = None,
     period: Optional[str] = None,
     max_price: Optional[float] = None,
     limit: int = 8,
@@ -72,7 +82,7 @@ def search_flights(
     if travel_date:
         sql += " AND DATE(f.departure_date_time)=%s"
         args.append(travel_date)
-    start, end = _date_bounds(period)
+    start, end = _date_bounds(period, month=month)
     if start and end:
         sql += " AND f.departure_date_time >= %s AND f.departure_date_time < %s"
         args.extend([start, end])

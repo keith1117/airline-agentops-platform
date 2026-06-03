@@ -139,6 +139,7 @@ class ReActAgent:
                 period = "next_month" if "next month" in lower else None
                 max_price = self._extract_budget(message)
                 airline = self._extract_airline(message)
+                month = self._extract_month(message)
                 if not dep and not arr:
                     prefs = self.registry.call("customer", "get_user_preferences", customer_email=customer_email)
                     tool_calls.append({"name": "get_user_preferences", "args": {"customer_email": customer_email}, "result": prefs})
@@ -154,13 +155,14 @@ class ReActAgent:
                     arrival_airport=arr,
                     airline_name=airline,
                     flight_number=None,
+                    month=month,
                     period=period,
                     max_price=max_price,
                 )
                 tool_calls.append(
                     {
                         "name": "search_flights",
-                        "args": {"departure_airport": dep, "arrival_airport": arr, "airline_name": airline, "period": period, "max_price": max_price},
+                        "args": {"departure_airport": dep, "arrival_airport": arr, "airline_name": airline, "month": month, "period": period, "max_price": max_price},
                         "result": result,
                     }
                 )
@@ -297,6 +299,7 @@ class ReActAgent:
         dep, arr = parse_airports(message)
         airline = self._extract_airline(message) or "United"
         period = "next_month" if "next month" in lower else None
+        month = self._extract_month(message)
         max_price = self._extract_budget(message)
 
         if self.settings.max_agent_steps < 2:
@@ -328,6 +331,7 @@ class ReActAgent:
             departure_airport=dep,
             arrival_airport=arr,
             airline_name=airline,
+            month=month,
             period=period,
             max_price=max_price,
         )
@@ -544,6 +548,7 @@ class ReActAgent:
                 airline_name=args.get("airline_name"),
                 flight_number=_normalize_flight_number(args.get("flight_number")),
                 travel_date=args.get("travel_date"),
+                month=args.get("month") or self._extract_month(message),
                 period=args.get("period"),
                 max_price=args.get("max_price"),
             )
@@ -653,6 +658,7 @@ class ReActAgent:
         flight_number = _normalize_flight_number(args.get("flight_number")) or self._extract_flight_number(message)
         departure_time = _normalize_datetime(args.get("departure_date_time")) or self._extract_datetime(message)
         travel_date = args.get("travel_date") or self._extract_travel_date(message) or (departure_time[:10] if departure_time else None)
+        month = args.get("month") or self._extract_month(message)
         airline = args.get("airline_name") or self._extract_airline(message) or "United"
         dep = args.get("departure_airport") or dep_from_text
         arr = args.get("arrival_airport") or arr_from_text
@@ -667,6 +673,7 @@ class ReActAgent:
                 airline_name=airline,
                 flight_number=flight_number,
                 travel_date=travel_date,
+                month=month,
             )
             tool_calls.append(
                 {
@@ -677,6 +684,7 @@ class ReActAgent:
                         "airline_name": airline,
                         "flight_number": flight_number,
                         "travel_date": travel_date,
+                        "month": month,
                     },
                     "result": search_result,
                 }
@@ -1065,6 +1073,57 @@ class ReActAgent:
         if "jetblue" in message.lower():
             return "JetBlue"
         return None
+
+    @staticmethod
+    def _extract_month(message: str) -> Optional[str]:
+        month_names = {
+            "jan": 1,
+            "january": 1,
+            "feb": 2,
+            "february": 2,
+            "mar": 3,
+            "march": 3,
+            "apr": 4,
+            "april": 4,
+            "may": 5,
+            "jun": 6,
+            "june": 6,
+            "jul": 7,
+            "july": 7,
+            "aug": 8,
+            "august": 8,
+            "sep": 9,
+            "sept": 9,
+            "september": 9,
+            "oct": 10,
+            "october": 10,
+            "nov": 11,
+            "november": 11,
+            "dec": 12,
+            "december": 12,
+        }
+        lower = message.lower()
+        month_match = None
+        for name in sorted(month_names, key=len, reverse=True):
+            if re.search(rf"\b{name}\b", lower):
+                month_match = name
+                break
+        if not month_match:
+            ym = re.search(r"\b(20\d{2})-(0[1-9]|1[0-2])\b", message)
+            return ym.group(0) if ym else None
+
+        month_num = month_names[month_match]
+        year = None
+        after = re.search(rf"\b{month_match}\b\D{{0,8}}(20\d{{2}})\b", lower)
+        before = re.search(rf"\b(20\d{{2}})\D{{0,8}}\b{month_match}\b", lower)
+        if after:
+            year = int(after.group(1))
+        elif before:
+            year = int(before.group(1))
+        else:
+            today = date.today()
+            year = today.year if month_num >= today.month else today.year + 1
+        return f"{year}-{month_num:02d}"
 
     @staticmethod
     def _extract_datetime(message: str) -> Optional[str]:
