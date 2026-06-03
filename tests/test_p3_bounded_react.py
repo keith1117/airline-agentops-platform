@@ -152,6 +152,63 @@ def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypat
     assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
 
 
+def test_bounded_react_this_year_request_uses_period_before_selecting_cheapest(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            assert kwargs["departure_airport"] == "JFK"
+            assert kwargs["arrival_airport"] == "ORD"
+            assert kwargs["period"] == "this_year"
+            assert kwargs.get("month") is None
+            return {
+                "count": 2,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "SYN00038",
+                        "departure_airport": "JFK",
+                        "arrival_airport": "ORD",
+                        "departure_date_time": "2026-06-17 12:00:00",
+                        "arrival_date_time": "2026-06-17 19:00:00",
+                        "base_price": 890.18,
+                        "seats_left": 119,
+                        "status": "ON_TIME",
+                    },
+                    {
+                        "airline_name": "United",
+                        "flight_number": "SYN00002",
+                        "departure_airport": "JFK",
+                        "arrival_airport": "ORD",
+                        "departure_date_time": "2026-08-03 12:00:00",
+                        "arrival_date_time": "2026-08-03 23:30:00",
+                        "base_price": 1035.96,
+                        "seats_left": 178,
+                        "status": "ON_TIME",
+                    },
+                ],
+            }
+        if tool_name == "create_booking_intent":
+            return {"booking_intent_id": 38, "status": "PENDING_CONFIRMATION", "idempotency_key": "idem-38", **kwargs}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "bounded-this-year",
+        "testcustomer@nyu.edu",
+        "Find the cheapest United flight from JFK to ORD this year and prepare a booking.",
+    )
+
+    assert [name for name, _ in calls] == ["search_flights", "create_booking_intent"]
+    assert calls[1][1]["flight_number"] == "SYN00038"
+    assert "SYN00038" in resp["answer"]
+    assert resp["pending_confirmation"]["status"] == "PENDING_CONFIRMATION"
+
+
 def test_bounded_react_explicit_flight_number_uses_flight_filter_and_creates_intent(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
@@ -345,6 +402,31 @@ def test_single_step_month_search_uses_same_month_filter(monkeypatch):
     monkeypatch.setattr(agent.registry, "call", fake_call)
 
     resp = agent.customer_chat("single-step-month", "testcustomer@nyu.edu", "Find all flights from JFK to ORD on August")
+
+    assert calls[0][0] == "search_flights"
+    assert resp["execution"]["request_path"] == "tool_routing"
+
+
+def test_single_step_this_year_search_uses_period_filter(monkeypatch):
+    agent = make_agent(Settings(agent_runtime_mode="single_step", agent_router_mode="deterministic"))
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "search_flights":
+            assert kwargs["departure_airport"] == "JFK"
+            assert kwargs["arrival_airport"] == "ORD"
+            assert kwargs["period"] == "this_year"
+            assert kwargs.get("month") is None
+            return {"count": 0, "flights": []}
+        if tool_name == "get_user_preferences":
+            return {"preferences": {}}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat("single-step-this-year", "testcustomer@nyu.edu", "Find all flights from JFK to ORD this year")
 
     assert calls[0][0] == "search_flights"
     assert resp["execution"]["request_path"] == "tool_routing"

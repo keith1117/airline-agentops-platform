@@ -152,6 +152,7 @@ class LLMRouter:
             "Use answer_policy_question only for informational airline policy questions. "
             "Use create_booking_intent only for requests to start a booking and set needs_clarification if flight details are missing. "
             "For month-level flight searches, put the resolved month in args.month as YYYY-MM when the user states a month. "
+            "For year-level flight searches, put args.period as this_year or next_year. Do not put a bare year in travel_date. "
             "Use cancel_customer_ticket only when the customer asks to cancel a specific existing ticket and a ticket_id is available; otherwise ask for the ticket number. "
             "Never choose confirm_booking. "
             "Use remember_user_preference only when the user explicitly asks to remember or save a preference. "
@@ -226,9 +227,9 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
                 "departure_airport": {"type": "string"},
                 "arrival_airport": {"type": "string"},
                 "airline_name": {"type": "string"},
-                "travel_date": {"type": "string", "description": "YYYY-MM-DD when known"},
+                "travel_date": {"type": "string", "description": "Exact date as YYYY-MM-DD only. Do not use this for bare years."},
                 "month": {"type": "string", "description": "YYYY-MM for month-level searches such as August 2026"},
-                "period": {"type": "string", "description": "Optional period such as next_month"},
+                "period": {"type": "string", "description": "Optional period: next_month, this_year, or next_year"},
                 "max_price": {"type": "number"},
             },
         },

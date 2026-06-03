@@ -18,7 +18,7 @@ The main Docker MySQL demo database can also be loaded with a smaller curated pr
 
 P3.1 adds a bounded ReAct-style booking-preparation runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, create a pending booking intent, and stop for human confirmation. It remains bounded by `MAX_AGENT_STEPS`, role-based tools, and human-confirmed transaction guards.
 
-Natural-language flight search supports date-level, `next month`, and month-level filters such as `August` or `August 2027`. If a month is provided without a year, the Agent resolves it to the nearest future occurrence of that month before querying inventory.
+Natural-language flight search supports date-level, `next month`, year-level filters such as `this year` / `next year`, and month-level filters such as `August` or `August 2027`. If a month is provided without a year, the Agent resolves it to the nearest future occurrence of that month before querying inventory.
 
 The Agent service is now **AI-first but fallback-safe**. When model credentials are configured, it can prioritize OpenAI native tool calling for tool selection, fall back to JSON structured routing, and use embedding-based grounded RAG for policy questions. Without credentials, or if an external model call fails in `auto` mode, it falls back to deterministic routing, keyword retrieval, and extractive policy answers while recording the fallback reason.
 
@@ -236,7 +236,7 @@ python -m pytest tests -q
 Current local fast result:
 
 ```text
-54 passed, 17 skipped
+56 passed, 17 skipped
 ```
 
 P0 acceptance tests with local MySQL:
@@ -315,7 +315,7 @@ RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
 Current verified Docker MySQL result:
 
 ```text
-71 passed
+73 passed
 ```
 
 P3.1 bounded runtime tests:
@@ -327,7 +327,7 @@ python -m pytest tests/test_p3_bounded_react.py -q
 Current P3.1 result:
 
 ```text
-11 passed
+13 passed
 ```
 
 P0.5 UI smoke result:
@@ -460,9 +460,9 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `54 passed, 17 skipped in 0.65s` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `71 passed in 27.87s` |
-| P3.1 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `11 passed` |
+| Local fast regression suite | `python -m pytest tests -q` | `56 passed, 17 skipped in 0.72s` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `73 passed in 28.72s` |
+| P3.1 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `13 passed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |

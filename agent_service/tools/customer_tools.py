@@ -33,6 +33,14 @@ def _date_bounds(period: Optional[str], month: Optional[str] = None):
         first = date(today.year + (today.month == 12), 1 if today.month == 12 else today.month + 1, 1)
         second = date(first.year + (first.month == 12), 1 if first.month == 12 else first.month + 1, 1)
         return first.isoformat(), second.isoformat()
+    if period == "this_year":
+        first = date(today.year, 1, 1)
+        second = date(today.year + 1, 1, 1)
+        return first.isoformat(), second.isoformat()
+    if period == "next_year":
+        first = date(today.year + 1, 1, 1)
+        second = date(today.year + 2, 1, 1)
+        return first.isoformat(), second.isoformat()
     return None, None
 
 
@@ -79,7 +87,7 @@ def search_flights(
     if flight_number:
         sql += " AND f.flight_number=%s"
         args.append(flight_number.upper())
-    if travel_date:
+    if travel_date and re.match(r"^\d{4}-\d{2}-\d{2}$", str(travel_date)):
         sql += " AND DATE(f.departure_date_time)=%s"
         args.append(travel_date)
     start, end = _date_bounds(period, month=month)

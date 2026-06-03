@@ -136,7 +136,7 @@ class ReActAgent:
             elif self._is_customer_search_question(lower, message):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 dep, arr = parse_airports(message)
-                period = "next_month" if "next month" in lower else None
+                period = self._extract_period(lower)
                 max_price = self._extract_budget(message)
                 airline = self._extract_airline(message)
                 month = self._extract_month(message)
@@ -298,7 +298,7 @@ class ReActAgent:
 
         dep, arr = parse_airports(message)
         airline = self._extract_airline(message) or "United"
-        period = "next_month" if "next month" in lower else None
+        period = self._extract_period(lower)
         month = self._extract_month(message)
         max_price = self._extract_budget(message)
 
@@ -539,21 +539,24 @@ class ReActAgent:
             return {"answer": result["answer"], "citations": result.get("citations", [])}
         if tool == "search_flights":
             dep, arr = parse_airports(message)
-            self._trajectory_action(execution, "search_flights", args)
+            tool_args = {
+                "departure_airport": args.get("departure_airport") or dep,
+                "arrival_airport": args.get("arrival_airport") or arr,
+                "airline_name": args.get("airline_name"),
+                "flight_number": _normalize_flight_number(args.get("flight_number")),
+                "travel_date": _normalize_travel_date(args.get("travel_date")),
+                "month": _normalize_month(args.get("month")) or self._extract_month(message),
+                "period": _normalize_period(args.get("period")) or self._extract_period(message.lower()),
+                "max_price": args.get("max_price"),
+            }
+            self._trajectory_action(execution, "search_flights", tool_args)
             result = self.registry.call(
                 "customer",
                 "search_flights",
-                departure_airport=args.get("departure_airport") or dep,
-                arrival_airport=args.get("arrival_airport") or arr,
-                airline_name=args.get("airline_name"),
-                flight_number=_normalize_flight_number(args.get("flight_number")),
-                travel_date=args.get("travel_date"),
-                month=args.get("month") or self._extract_month(message),
-                period=args.get("period"),
-                max_price=args.get("max_price"),
+                **tool_args,
             )
             execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
-            tool_calls.append({"name": "search_flights", "args": args, "result": result})
+            tool_calls.append({"name": "search_flights", "args": tool_args, "result": result})
             self._trajectory_observation(execution, "search_flights", result)
             return {"answer": self._format_flights(result)}
         if tool == "get_customer_trips":
@@ -657,8 +660,13 @@ class ReActAgent:
         dep_from_text, arr_from_text = parse_airports(message)
         flight_number = _normalize_flight_number(args.get("flight_number")) or self._extract_flight_number(message)
         departure_time = _normalize_datetime(args.get("departure_date_time")) or self._extract_datetime(message)
-        travel_date = args.get("travel_date") or self._extract_travel_date(message) or (departure_time[:10] if departure_time else None)
-        month = args.get("month") or self._extract_month(message)
+        travel_date = (
+            _normalize_travel_date(args.get("travel_date"))
+            or self._extract_travel_date(message)
+            or (departure_time[:10] if departure_time else None)
+        )
+        month = _normalize_month(args.get("month")) or self._extract_month(message)
+        period = _normalize_period(args.get("period")) or self._extract_period(message.lower())
         airline = args.get("airline_name") or self._extract_airline(message) or "United"
         dep = args.get("departure_airport") or dep_from_text
         arr = args.get("arrival_airport") or arr_from_text
@@ -674,6 +682,7 @@ class ReActAgent:
                 flight_number=flight_number,
                 travel_date=travel_date,
                 month=month,
+                period=period,
             )
             tool_calls.append(
                 {
@@ -685,6 +694,7 @@ class ReActAgent:
                         "flight_number": flight_number,
                         "travel_date": travel_date,
                         "month": month,
+                        "period": period,
                     },
                     "result": search_result,
                 }
@@ -1126,6 +1136,16 @@ class ReActAgent:
         return f"{year}-{month_num:02d}"
 
     @staticmethod
+    def _extract_period(lower: str) -> Optional[str]:
+        if re.search(r"\bnext\s+month\b", lower):
+            return "next_month"
+        if re.search(r"\b(?:this|current)\s+year\b", lower):
+            return "this_year"
+        if re.search(r"\bnext\s+year\b", lower):
+            return "next_year"
+        return None
+
+    @staticmethod
     def _extract_datetime(message: str) -> Optional[str]:
         match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)", message)
         if not match:
@@ -1258,3 +1278,30 @@ def _normalize_datetime(value: Any) -> Optional[str]:
     if len(time_part) == 5:
         time_part += ":00"
     return f"{date_part} {time_part}"
+
+
+def _normalize_travel_date(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text) else None
+
+
+def _normalize_month(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text if re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", text) else None
+
+
+def _normalize_period(value: Any) -> Optional[str]:
+    if value in (None, ""):
+        return None
+    text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "next_month": "next_month",
+        "this_year": "this_year",
+        "current_year": "this_year",
+        "next_year": "next_year",
+    }
+    return aliases.get(text)
