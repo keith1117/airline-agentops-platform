@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 from ..db import get_conn
+from ..reporting import resolve_sales_window
 
 
 def _serialize_rows(rows):
@@ -13,7 +14,13 @@ def _serialize_rows(rows):
     return out
 
 
-def get_sales_report(airline_name: str, months: int = 12) -> Dict[str, Any]:
+def get_sales_report(
+    airline_name: str,
+    period: str = "past_year",
+    start_date: str = None,
+    end_date: str = None,
+) -> Dict[str, Any]:
+    window = resolve_sales_window(period, start_date=start_date, end_date=end_date)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -28,14 +35,23 @@ def get_sales_report(airline_name: str, months: int = 12) -> Dict[str, Any]:
                  AND f.flight_number=t.flight_number
                  AND f.departure_date_time=t.departure_date_time
                 WHERE t.airline_name=%s
-                  AND t.purchase_date_time >= DATE_SUB(CURDATE(), INTERVAL %s MONTH)
+                  AND t.purchase_date_time >= %s
+                  AND t.purchase_date_time < %s
+                  AND t.purchase_date_time <= NOW()
                 GROUP BY DATE_FORMAT(t.purchase_date_time, '%%Y-%%m')
                 ORDER BY month
                 """,
-                (airline_name, months),
+                (airline_name, window["start_date"], window["end_date"]),
             )
             rows = _serialize_rows(cur.fetchall())
-        return {"rows": rows, "count": len(rows)}
+        return {
+            "rows": rows,
+            "count": len(rows),
+            "period": window["period"],
+            "start_date": window["start_date"],
+            "end_date": window["end_date"],
+            "range_label": window["label"],
+        }
     finally:
         conn.close()
 
@@ -127,4 +143,3 @@ def get_route_performance(airline_name: str, limit: int = 10) -> Dict[str, Any]:
         return {"rows": rows, "count": len(rows)}
     finally:
         conn.close()
-

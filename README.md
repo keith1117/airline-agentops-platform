@@ -59,8 +59,11 @@ Customer Booking Agent at `/customer/agent`:
 Staff Operations Copilot at `/staff/copilot`:
 
 - Ask analytics questions: `Which flights have the worst reviews?`
+- Ask time-scoped sales questions such as `Show me the sales report for this month`, `this year`, `last month`, `last year`, or an exact `YYYY-MM-DD` range
 - Call staff-only analytics tools
 - Display answer, tool calls, and table data
+
+Staff sales reports use explicit database-backed reporting windows. `This month` and `this year` are month-to-date and year-to-date; `last month` and `last year` mean the previous complete calendar month and calendar year. Both Copilot and the manual Reports page share these boundaries and exclude future-dated transactions.
 
 ## P0 Tool Boundary
 

@@ -155,6 +155,8 @@ class LLMRouter:
             "Set needs_clarification if flight details are missing. "
             "For month-level flight searches, put the resolved month in args.month as YYYY-MM when the user states a month. "
             "For year-level flight searches, put args.period as this_year or next_year. Do not put a bare year in travel_date. "
+            "For staff sales reports, put args.period as this_month, last_month, this_year, last_year, past_month, or past_year. "
+            "If the staff provides two exact report dates, put them in args.start_date and args.end_date as YYYY-MM-DD. "
             "Use cancel_customer_ticket only when the customer asks to cancel a specific existing ticket and a ticket_id is available; otherwise ask for the ticket number. "
             "Never choose confirm_booking. "
             "Use remember_user_preference only when the user explicitly asks to remember or save a preference. "
@@ -268,7 +270,17 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
             "properties": {"question": {"type": "string"}},
             "required": ["question"],
         },
-        "get_sales_report": {"description": "Return staff monthly ticket sales report.", "properties": {}},
+        "get_sales_report": {
+            "description": "Return a staff ticket sales report for the requested time range.",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "enum": ["this_month", "last_month", "this_year", "last_year", "past_month", "past_year"],
+                },
+                "start_date": {"type": "string", "description": "Custom range start as YYYY-MM-DD"},
+                "end_date": {"type": "string", "description": "Custom range inclusive end as YYYY-MM-DD"},
+            },
+        },
         "analyze_reviews": {"description": "Analyze staff airline reviews and ratings.", "properties": {}},
         "get_flight_load_factor": {"description": "Return staff load-factor analytics.", "properties": {}},
         "get_route_performance": {"description": "Return staff route performance analytics.", "properties": {}},

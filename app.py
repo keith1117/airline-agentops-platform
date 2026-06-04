@@ -6,6 +6,7 @@ from pymysql.cursors import DictCursor
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, Tuple, List
 from agent_service.db import ensure_agent_schema
+from agent_service.reporting import resolve_sales_window
 from agent_service.tools.customer_tools import cancel_customer_ticket
 
 load_dotenv()
@@ -994,53 +995,47 @@ def staff_reports():
         return redirect(url_for("login"))
     airline = session["airline"]
     rows = None
+    range_label = None
     if request.method == "POST":
         mode = request.form.get("mode")
+        start = request.form.get("start")
+        end = request.form.get("end")
+        window = resolve_sales_window(mode, start_date=start, end_date=end)
+        range_label = window["label"]
         with conn.cursor() as cur:
             if mode == "range":
-                start = request.form.get("start"); end = request.form.get("end")
                 cur.execute(
                     """
                     SELECT DATE(t.purchase_date_time) AS day, 
                     COUNT(*) AS tickets
                     FROM Ticket t
                     WHERE t.airline_name=%s 
-                      AND DATE(t.purchase_date_time) BETWEEN %s AND %s
+                      AND t.purchase_date_time >= %s
+                      AND t.purchase_date_time < %s
+                      AND t.purchase_date_time <= NOW()
                     GROUP BY DATE(t.purchase_date_time)
                     ORDER BY day
                     """,
-                    (airline, start, end),
+                    (airline, window["start_date"], window["end_date"]),
                 )
                 rows = cur.fetchall()
-            elif mode == "last_month":
+            elif mode in {"last_month", "last_year"}:
                 cur.execute(
                     """
                     SELECT DATE_FORMAT(t.purchase_date_time, '%%Y-%%m') AS ym, 
                     COUNT(*) AS tickets
                     FROM Ticket t
                     WHERE t.airline_name=%s 
-                      AND t.purchase_date_time >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)
+                      AND t.purchase_date_time >= %s
+                      AND t.purchase_date_time < %s
+                      AND t.purchase_date_time <= NOW()
                     GROUP BY ym 
                     ORDER BY ym
                     """,
-                    (airline,),
+                    (airline, window["start_date"], window["end_date"]),
                 )
                 rows = cur.fetchall()
-            elif mode == "last_year":
-                cur.execute(
-                    """
-                    SELECT DATE_FORMAT(t.purchase_date_time, '%%Y-%%m') AS ym, 
-                    COUNT(*) AS tickets
-                    FROM Ticket t
-                    WHERE t.airline_name=%s 
-                      AND t.purchase_date_time >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-                    GROUP BY ym 
-                    ORDER BY ym
-                    """,
-                    (airline,),
-                )
-                rows = cur.fetchall()
-    return render_template("staff_reports.html", rows=rows)
+    return render_template("staff_reports.html", rows=rows, range_label=range_label)
 
 # health
 @app.get("/health")

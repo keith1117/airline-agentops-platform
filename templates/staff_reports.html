@@ -21,26 +21,28 @@
   <form method="POST" class="card form-grid">
     <input type="hidden" name="mode" value="last_month">
     <strong>Last month</strong>
-    <p class="muted">Summarize recent ticket sales.</p>
+    <p class="muted">Summarize the previous complete calendar month.</p>
     <button>Run Last Month</button>
   </form>
   <form method="POST" class="card form-grid">
     <input type="hidden" name="mode" value="last_year">
     <strong>Last year</strong>
-    <p class="muted">Summarize monthly sales over the past year.</p>
+    <p class="muted">Summarize the previous complete calendar year.</p>
     <button>Run Last Year</button>
   </form>
 </section>
 
-{% if rows %}
+{% if rows is not none %}
   <section class="card" style="margin-top:18px">
-    <h2>Result</h2>
+    <h2>Result{% if range_label %} · {{ range_label }}{% endif %}</h2>
     <div class="data-table-wrap">
       <table class="data-table">
         <thead><tr><th>Period</th><th>Tickets</th></tr></thead>
         <tbody>
           {% for r in rows %}
             <tr><td>{{ r.day or r.ym }}</td><td>{{ r.tickets }}</td></tr>
+          {% else %}
+            <tr><td colspan="2">No ticket sales were found for this reporting window.</td></tr>
           {% endfor %}
         </tbody>
       </table>

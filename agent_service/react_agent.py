@@ -63,7 +63,7 @@ class ReActAgent:
                 risk="safe_read",
             )
         )
-        self.registry.register(Tool("get_sales_report", "Return monthly ticket sales.", ["staff"], get_sales_report, risk="safe_read"))
+        self.registry.register(Tool("get_sales_report", "Return ticket sales for a requested reporting window.", ["staff"], get_sales_report, risk="safe_read"))
         self.registry.register(Tool("analyze_reviews", "Analyze ratings and comments.", ["staff"], analyze_reviews, risk="safe_read"))
         self.registry.register(Tool("get_flight_load_factor", "Return load factor by flight.", ["staff"], get_flight_load_factor, risk="safe_read"))
         self.registry.register(Tool("get_route_performance", "Return route performance.", ["staff"], get_route_performance, risk="safe_read"))
@@ -241,10 +241,11 @@ class ReActAgent:
                 answer = self._format_table("Route performance", result.get("rows", []))
             elif any(word in lower for word in ["sales", "revenue", "report", "monthly", "last year", "ticket sales", "销售", "收入", "报表"]):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
-                result = self.registry.call("staff", "get_sales_report", airline_name=airline_name)
-                tool_calls.append({"name": "get_sales_report", "args": {"airline_name": airline_name}, "result": result})
+                report_args = self._sales_report_args(message)
+                result = self.registry.call("staff", "get_sales_report", airline_name=airline_name, **report_args)
+                tool_calls.append({"name": "get_sales_report", "args": {"airline_name": airline_name, **report_args}, "result": result})
                 table = result.get("rows")
-                answer = self._format_table("Sales report", result.get("rows", []))
+                answer = self._format_sales_report(result)
             else:
                 answer = self._staff_scope_fallback()
                 execution["request_path"] = "scope_fallback"
@@ -924,8 +925,9 @@ class ReActAgent:
         if tool == "answer_policy_question":
             result = self._call_policy_tool("staff", args.get("question") or message, tool_calls, execution, router_used="llm")
             return {"answer": result["answer"]}
+        report_args = self._sales_report_args(message, args) if tool == "get_sales_report" else {}
         staff_tools = {
-            "get_sales_report": lambda: self.registry.call("staff", "get_sales_report", airline_name=airline_name),
+            "get_sales_report": lambda: self.registry.call("staff", "get_sales_report", airline_name=airline_name, **report_args),
             "analyze_reviews": lambda: self.registry.call("staff", "analyze_reviews", airline_name=airline_name),
             "get_flight_load_factor": lambda: self.registry.call("staff", "get_flight_load_factor", airline_name=airline_name),
             "get_route_performance": lambda: self.registry.call("staff", "get_route_performance", airline_name=airline_name),
@@ -933,10 +935,13 @@ class ReActAgent:
         if tool in staff_tools:
             result = staff_tools[tool]()
             execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
-            tool_calls.append({"name": tool, "args": {"airline_name": airline_name, **args}, "result": result})
+            effective_args = report_args if tool == "get_sales_report" else args
+            tool_calls.append({"name": tool, "args": {"airline_name": airline_name, **effective_args}, "result": result})
             table = result.get("rows") or result.get("summary")
             if tool == "analyze_reviews":
                 answer = self._format_review_analysis(result)
+            elif tool == "get_sales_report":
+                answer = self._format_sales_report(result)
             else:
                 answer = self._format_table(tool.replace("_", " ").title(), table or [])
             return {"answer": answer, "tables": table}
@@ -1286,6 +1291,35 @@ class ReActAgent:
         return None
 
     @staticmethod
+    def _extract_sales_period(lower: str) -> str:
+        patterns = [
+            (r"\b(?:this|current)\s+month\b", "this_month"),
+            (r"\b(?:last|previous)\s+month\b", "last_month"),
+            (r"\b(?:this|current)\s+year\b", "this_year"),
+            (r"\b(?:last|previous)\s+year\b", "last_year"),
+            (r"\bpast\s+(?:30\s+days|month)\b", "past_month"),
+            (r"\bpast\s+(?:12\s+months|year)\b", "past_year"),
+        ]
+        for pattern, period in patterns:
+            if re.search(pattern, lower):
+                return period
+        return "past_year"
+
+    @classmethod
+    def _sales_report_args(cls, message: str, routed_args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        args = routed_args or {}
+        dates = re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", message)
+        start_date = args.get("start_date") or (dates[0] if len(dates) >= 2 else None)
+        end_date = args.get("end_date") or (dates[1] if len(dates) >= 2 else None)
+        if start_date and end_date:
+            return {"start_date": start_date, "end_date": end_date}
+        allowed = {"this_month", "last_month", "this_year", "last_year", "past_month", "past_year"}
+        period = args.get("period")
+        if period not in allowed:
+            period = cls._extract_sales_period(message.lower())
+        return {"period": period}
+
+    @staticmethod
     def _extract_datetime(message: str) -> Optional[str]:
         match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)", message)
         if not match:
@@ -1412,6 +1446,12 @@ class ReActAgent:
             return f"{title}: no rows found."
         preview = "; ".join(str(row) for row in rows[:5])
         return f"{title}: {preview}"
+
+    @staticmethod
+    def _format_sales_report(result: Dict[str, Any]) -> str:
+        label = result.get("range_label") or "Requested range"
+        count = result.get("count", len(result.get("rows", [])))
+        return f"Sales report for {label}: retrieved {count} monthly rows from the database."
 
     @staticmethod
     def _format_review_analysis(result: Dict[str, Any]) -> str:
