@@ -513,8 +513,8 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `64 passed, 18 skipped in 15.18s` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | `77 passed in 26.52s` |
+| Local fast regression suite | `python -m pytest tests -q` | `71 passed, 18 skipped` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | Previous baseline: `77 passed`; rerun pending after latest P3 changes |
 | P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `18 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
@@ -557,6 +557,8 @@ These are local development results on a small demo stack. They are useful for p
 ## Advanced Eval / Agentic RL Design
 
 Real Agentic RL and model fine-tuning are intentionally out of scope for this portfolio MVP. The project instead prepares the engineering inputs that such optimization would need: deterministic eval tasks, trace logging, tool-call metadata, citations, latency metrics, and failed-case reporting.
+
+P4 future governance work also includes UTC-based internal timestamp storage and comparison, consistent Docker/MySQL/backend time semantics, browser-detected IANA user timezones for display, and explicit airport-local timezone handling for flight schedules. This avoids binding the application to the developer machine's current timezone while keeping reporting boundaries deterministic.
 
 Current implemented evaluation:
 
