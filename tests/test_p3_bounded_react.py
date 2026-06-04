@@ -507,6 +507,54 @@ def test_bounded_react_staff_route_review_analysis_does_not_join_unrelated_signa
     assert resp["tables"] == []
 
 
+def test_bounded_react_staff_poor_review_route_query_does_not_label_strong_sales(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    def fake_call(role, tool_name, **kwargs):
+        assert role == "staff"
+        if tool_name == "get_route_performance":
+            return {
+                "rows": [
+                    {
+                        "departure_airport": "ATL",
+                        "arrival_airport": "AUS",
+                        "tickets": 9,
+                        "estimated_revenue": 7047.28,
+                    }
+                ]
+            }
+        if tool_name == "analyze_reviews":
+            return {
+                "summary": [],
+                "route_summary": [
+                    {
+                        "departure_airport": "ATL",
+                        "arrival_airport": "AUS",
+                        "avg_rating": 2.0,
+                        "review_count": 4,
+                    }
+                ],
+                "comments": [],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat(
+        "staff-bounded-poor-reviews-only",
+        "alice",
+        "United",
+        "Which route has poor reviews?",
+    )
+
+    assert resp["tables"]
+    assert resp["tables"][0]["route"] == "ATL -> AUS"
+    assert resp["tables"][0]["signal"] == "Poor reviews"
+    assert "Strong sales" not in resp["answer"]
+    assert all(row["signal"] != "Strong sales + poor reviews" for row in resp["tables"])
+
+
 def test_bounded_runtime_rejects_confirm_booking_tool(monkeypatch):
     agent = make_agent()
     execution = agent._execution()

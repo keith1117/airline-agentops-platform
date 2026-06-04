@@ -350,8 +350,17 @@ class ReActAgent:
                 "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
             }
         )
-        answer, table = self._format_staff_route_review_analysis(route_result, review_result)
+        answer, table = self._format_staff_route_review_analysis(
+            route_result,
+            review_result,
+            include_sales_signal=self._staff_request_includes_sales_signal(message.lower()),
+        )
         return {"answer": answer, "tables": table}
+
+    @staticmethod
+    def _staff_request_includes_sales_signal(lower: str) -> bool:
+        sales_terms = ["sales", "revenue", "strong", "popular", "performance", "selling", "sold", "销售", "收入", "热门"]
+        return any(term in lower for term in sales_terms)
 
     def _bounded_customer_react(
         self,
@@ -1465,6 +1474,7 @@ class ReActAgent:
     def _format_staff_route_review_analysis(
         route_result: Dict[str, Any],
         review_result: Dict[str, Any],
+        include_sales_signal: bool = True,
     ) -> tuple[str, List[Dict[str, Any]]]:
         routes = route_result.get("rows") or []
         route_reviews = review_result.get("route_summary") or []
@@ -1482,9 +1492,13 @@ class ReActAgent:
             if not sales:
                 continue
             rating = float(review.get("avg_rating") or 0)
+            if rating <= 3.0:
+                signal = "Strong sales + poor reviews" if include_sales_signal else "Poor reviews"
+            else:
+                signal = "Sales + reviews available" if include_sales_signal else "Reviews available"
             correlated.append(
                 {
-                    "signal": "Strong sales + poor reviews" if rating <= 3.0 else "Sales + reviews available",
+                    "signal": signal,
                     "route": f"{key[0]} -> {key[1]}",
                     "tickets": int(sales.get("tickets") or 0),
                     "estimated_revenue": float(sales.get("estimated_revenue") or 0),
@@ -1510,12 +1524,18 @@ class ReActAgent:
             )
 
         candidate = poor_routes[0]
-        answer = (
-            f"Route with the strongest sales among poorly reviewed routes: {candidate['route']} with "
-            f"{candidate['tickets']} tickets, estimated revenue ${candidate['estimated_revenue']:.2f}, "
-            f"and an average rating of {candidate['avg_rating']:.2f} across "
-            f"{candidate['review_count']} route-linked reviews."
-        )
+        if include_sales_signal:
+            answer = (
+                f"Route with the strongest sales among poorly reviewed routes: {candidate['route']} with "
+                f"{candidate['tickets']} tickets, estimated revenue ${candidate['estimated_revenue']:.2f}, "
+                f"and an average rating of {candidate['avg_rating']:.2f} across "
+                f"{candidate['review_count']} route-linked reviews."
+            )
+        else:
+            answer = (
+                f"Lowest-rated reviewed route: {candidate['route']} with an average rating of "
+                f"{candidate['avg_rating']:.2f} across {candidate['review_count']} route-linked reviews."
+            )
         return answer, poor_routes
 
 
