@@ -218,15 +218,16 @@ class ReActAgent:
                 routed = self._bounded_staff_react(staff_username, airline_name, message, tool_calls, execution)
                 answer = routed["answer"]
                 table = routed.get("tables")
+            elif any(word in lower for word in ["review", "rating", "comment", "差评", "评分"]):
+                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
+                review_args = self._review_analysis_args(lower)
+                result = self.registry.call("staff", "analyze_reviews", airline_name=airline_name, **review_args)
+                tool_calls.append({"name": "analyze_reviews", "args": {"airline_name": airline_name, **review_args}, "result": result})
+                table = self._review_table(result, review_args["target"], review_args["order"])
+                answer = self._format_review_analysis(result, review_args["target"], review_args["order"])
             elif (routed := self._try_staff_llm_route(message, airline_name, tool_calls, execution)) is not None:
                 answer = routed["answer"]
                 table = routed.get("tables")
-            elif any(word in lower for word in ["review", "rating", "comment", "差评", "评分"]):
-                execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
-                result = self.registry.call("staff", "analyze_reviews", airline_name=airline_name)
-                tool_calls.append({"name": "analyze_reviews", "args": {"airline_name": airline_name}, "result": result})
-                table = result.get("summary")
-                answer = self._format_review_analysis(result)
             elif any(word in lower for word in ["load", "capacity", "full", "seat", "载客", "满座"]):
                 execution.update({"request_path": "tool_routing", "router_used": "deterministic", "answer_mode_used": "backend_formatter"})
                 result = self.registry.call("staff", "get_flight_load_factor", airline_name=airline_name)
@@ -294,7 +295,11 @@ class ReActAgent:
             return False
         route_terms = ["route", "routes", "popular", "performance", "sales", "revenue", "strong", "航线", "销售", "收入"]
         review_terms = ["review", "reviews", "rating", "ratings", "poor", "worst", "low-rated", "low rated", "差评", "评分"]
-        return any(term in lower for term in route_terms) and any(term in lower for term in review_terms)
+        return (
+            any(term in lower for term in route_terms)
+            and any(term in lower for term in review_terms)
+            and self._staff_request_includes_sales_signal(lower)
+        )
 
     @staticmethod
     def _is_booking_preparation_goal(lower: str) -> bool:
@@ -361,6 +366,23 @@ class ReActAgent:
     def _staff_request_includes_sales_signal(lower: str) -> bool:
         sales_terms = ["sales", "revenue", "strong", "popular", "performance", "selling", "sold", "销售", "收入", "热门"]
         return any(term in lower for term in sales_terms)
+
+    @staticmethod
+    def _review_analysis_args(lower: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        args = args or {}
+        route_terms = ["route", "routes", "航线"]
+        flight_terms = ["flight", "flights", "航班"]
+        best_terms = ["best", "highest", "high", "top", "good", "positive", "最高", "最好", "高评分"]
+        worst_terms = ["worst", "lowest", "low", "poor", "bad", "negative", "差评", "最低", "最差"]
+        target = args.get("target") if args.get("target") in {"route", "flight"} else None
+        target = target or ("route" if any(term in lower for term in route_terms) else "flight")
+        if any(term in lower for term in flight_terms):
+            target = "flight"
+        order = args.get("order") if args.get("order") in {"best", "worst"} else None
+        order = order or ("best" if any(term in lower for term in best_terms) else "worst")
+        if any(term in lower for term in worst_terms):
+            order = "worst"
+        return {"target": target, "order": order}
 
     def _bounded_customer_react(
         self,
@@ -935,20 +957,27 @@ class ReActAgent:
             result = self._call_policy_tool("staff", args.get("question") or message, tool_calls, execution, router_used="llm")
             return {"answer": result["answer"]}
         report_args = self._sales_report_args(message, args) if tool == "get_sales_report" else {}
+        review_args = self._review_analysis_args(message.lower(), args) if tool == "analyze_reviews" else {}
         staff_tools = {
             "get_sales_report": lambda: self.registry.call("staff", "get_sales_report", airline_name=airline_name, **report_args),
-            "analyze_reviews": lambda: self.registry.call("staff", "analyze_reviews", airline_name=airline_name),
+            "analyze_reviews": lambda: self.registry.call(
+                "staff",
+                "analyze_reviews",
+                airline_name=airline_name,
+                **review_args,
+            ),
             "get_flight_load_factor": lambda: self.registry.call("staff", "get_flight_load_factor", airline_name=airline_name),
             "get_route_performance": lambda: self.registry.call("staff", "get_route_performance", airline_name=airline_name),
         }
         if tool in staff_tools:
             result = staff_tools[tool]()
             execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
-            effective_args = report_args if tool == "get_sales_report" else args
+            effective_args = report_args if tool == "get_sales_report" else (review_args if tool == "analyze_reviews" else args)
             tool_calls.append({"name": tool, "args": {"airline_name": airline_name, **effective_args}, "result": result})
             table = result.get("rows") or result.get("summary")
             if tool == "analyze_reviews":
-                answer = self._format_review_analysis(result)
+                table = self._review_table(result, review_args["target"], review_args["order"])
+                answer = self._format_review_analysis(result, review_args["target"], review_args["order"])
             elif tool == "get_sales_report":
                 answer = self._format_sales_report(result)
             else:
@@ -1463,12 +1492,51 @@ class ReActAgent:
         return f"Sales report for {label}: retrieved {count} monthly rows from the database."
 
     @staticmethod
-    def _format_review_analysis(result: Dict[str, Any]) -> str:
-        summary = result.get("summary", [])
-        comments = result.get("comments", [])
-        if not summary and not comments:
+    def _review_table(result: Dict[str, Any], target: str = "flight", order: str = "worst") -> List[Dict[str, Any]]:
+        if target == "route":
+            signal = "Best route reviews" if order == "best" else "Worst route reviews"
+            rows = []
+            for row in result.get("route_summary", []):
+                rows.append(
+                    {
+                        "route": f"{row.get('departure_airport')} -> {row.get('arrival_airport')}",
+                        "avg_rating": row.get("avg_rating"),
+                        "review_count": row.get("review_count"),
+                        "signal": signal,
+                    }
+                )
+            return rows
+
+        signal = "Best flight reviews" if order == "best" else "Worst flight reviews"
+        rows = []
+        for row in result.get("summary", []):
+            rows.append(
+                {
+                    "flight_number": row.get("flight_number"),
+                    "avg_rating": row.get("avg_rating"),
+                    "review_count": row.get("review_count"),
+                    "signal": signal,
+                }
+            )
+        return rows
+
+    @classmethod
+    def _format_review_analysis(cls, result: Dict[str, Any], target: str = "flight", order: str = "worst") -> str:
+        table = cls._review_table(result, target, order)
+        if not table:
             return "No reviews found."
-        return "Lowest-rated review summary: " + "; ".join(str(row) for row in summary[:5])
+
+        first = table[0]
+        direction = "Highest-rated" if order == "best" else "Lowest-rated"
+        if target == "route":
+            return (
+                f"{direction} route: {first['route']} with an average rating of "
+                f"{float(first['avg_rating']):.2f} across {first['review_count']} reviews."
+            )
+        return (
+            f"{direction} flight: {first['flight_number']} with an average rating of "
+            f"{float(first['avg_rating']):.2f} across {first['review_count']} reviews."
+        )
 
     @staticmethod
     def _format_staff_route_review_analysis(

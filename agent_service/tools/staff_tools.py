@@ -56,24 +56,27 @@ def get_sales_report(
         conn.close()
 
 
-def analyze_reviews(airline_name: str, limit: int = 10) -> Dict[str, Any]:
+def analyze_reviews(airline_name: str, limit: int = 10, target: str = "flight", order: str = "worst") -> Dict[str, Any]:
+    target = target if target in {"flight", "route"} else "flight"
+    order = order if order in {"best", "worst"} else "worst"
+    rating_order = "DESC" if order == "best" else "ASC"
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT flight_number, AVG(rating) AS avg_rating, COUNT(*) AS review_count
                 FROM Review
                 WHERE airline_name=%s
                 GROUP BY flight_number
-                ORDER BY avg_rating ASC, review_count DESC
+                ORDER BY avg_rating {rating_order}, review_count DESC
                 LIMIT %s
                 """,
                 (airline_name, limit),
             )
             summary = _serialize_rows(cur.fetchall())
             cur.execute(
-                """
+                f"""
                 SELECT f.departure_airport, f.arrival_airport,
                        AVG(r.rating) AS avg_rating, COUNT(*) AS review_count
                 FROM Review r
@@ -83,24 +86,30 @@ def analyze_reviews(airline_name: str, limit: int = 10) -> Dict[str, Any]:
                  AND f.departure_date_time=r.departure_date_time
                 WHERE r.airline_name=%s
                 GROUP BY f.departure_airport, f.arrival_airport
-                ORDER BY avg_rating ASC, review_count DESC
+                ORDER BY avg_rating {rating_order}, review_count DESC
                 LIMIT %s
                 """,
                 (airline_name, limit),
             )
             route_summary = _serialize_rows(cur.fetchall())
             cur.execute(
-                """
+                f"""
                 SELECT flight_number, rating, comment, created_at
                 FROM Review
                 WHERE airline_name=%s
-                ORDER BY rating ASC, created_at DESC
+                ORDER BY rating {rating_order}, created_at DESC
                 LIMIT %s
                 """,
                 (airline_name, limit),
             )
             comments = _serialize_rows(cur.fetchall())
-        return {"summary": summary, "route_summary": route_summary, "comments": comments}
+        return {
+            "summary": summary,
+            "route_summary": route_summary,
+            "comments": comments,
+            "target": target,
+            "order": order,
+        }
     finally:
         conn.close()
 

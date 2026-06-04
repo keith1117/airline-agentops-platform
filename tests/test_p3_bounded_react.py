@@ -550,9 +550,116 @@ def test_bounded_react_staff_poor_review_route_query_does_not_label_strong_sales
 
     assert resp["tables"]
     assert resp["tables"][0]["route"] == "ATL -> AUS"
-    assert resp["tables"][0]["signal"] == "Poor reviews"
+    assert resp["tables"][0]["signal"] == "Worst route reviews"
     assert "Strong sales" not in resp["answer"]
     assert all(row["signal"] != "Strong sales + poor reviews" for row in resp["tables"])
+
+
+def test_staff_route_worst_reviews_uses_review_only_route_summary(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((role, tool_name, kwargs))
+        assert role == "staff"
+        assert tool_name == "analyze_reviews"
+        assert kwargs["target"] == "route"
+        assert kwargs["order"] == "worst"
+        return {
+            "summary": [],
+            "route_summary": [
+                {
+                    "departure_airport": "ATL",
+                    "arrival_airport": "AUS",
+                    "avg_rating": 2.0,
+                    "review_count": 4,
+                }
+            ],
+            "comments": [],
+            "target": "route",
+            "order": "worst",
+        }
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat("staff-route-worst-reviews", "alice", "United", "Which route has worst reviews?")
+
+    assert [tool_name for _, tool_name, _ in calls] == ["analyze_reviews"]
+    assert "Lowest-rated route" in resp["answer"]
+    assert resp["tables"] == [
+        {
+            "route": "ATL -> AUS",
+            "avg_rating": 2.0,
+            "review_count": 4,
+            "signal": "Worst route reviews",
+        }
+    ]
+    assert "estimated_revenue" not in resp["tables"][0]
+    assert "tickets" not in resp["tables"][0]
+
+
+def test_staff_route_highest_rating_uses_best_route_summary(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((role, tool_name, kwargs))
+        assert tool_name == "analyze_reviews"
+        assert kwargs["target"] == "route"
+        assert kwargs["order"] == "best"
+        return {
+            "summary": [],
+            "route_summary": [
+                {
+                    "departure_airport": "SEA",
+                    "arrival_airport": "MIA",
+                    "avg_rating": 4.9,
+                    "review_count": 8,
+                }
+            ],
+            "comments": [],
+            "target": "route",
+            "order": "best",
+        }
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat("staff-route-best-reviews", "alice", "United", "Which route has highest rating?")
+
+    assert [tool_name for _, tool_name, _ in calls] == ["analyze_reviews"]
+    assert "Highest-rated route" in resp["answer"]
+    assert resp["tables"][0]["route"] == "SEA -> MIA"
+    assert resp["tables"][0]["signal"] == "Best route reviews"
+
+
+def test_staff_flight_highest_rating_uses_best_flight_summary(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((role, tool_name, kwargs))
+        assert tool_name == "analyze_reviews"
+        assert kwargs["target"] == "flight"
+        assert kwargs["order"] == "best"
+        return {
+            "summary": [{"flight_number": "P0206", "avg_rating": 5.0, "review_count": 6}],
+            "route_summary": [],
+            "comments": [],
+            "target": "flight",
+            "order": "best",
+        }
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat("staff-flight-best-reviews", "alice", "United", "Which flight has highest rating?")
+
+    assert [tool_name for _, tool_name, _ in calls] == ["analyze_reviews"]
+    assert "Highest-rated flight" in resp["answer"]
+    assert resp["tables"][0]["flight_number"] == "P0206"
+    assert resp["tables"][0]["signal"] == "Best flight reviews"
 
 
 def test_bounded_runtime_rejects_confirm_booking_tool(monkeypatch):

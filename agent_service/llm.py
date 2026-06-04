@@ -281,7 +281,13 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
                 "end_date": {"type": "string", "description": "Custom range inclusive end as YYYY-MM-DD"},
             },
         },
-        "analyze_reviews": {"description": "Analyze staff airline reviews and ratings.", "properties": {}},
+        "analyze_reviews": {
+            "description": "Analyze staff airline reviews and ratings by flight or route.",
+            "properties": {
+                "target": {"type": "string", "enum": ["flight", "route"]},
+                "order": {"type": "string", "enum": ["worst", "best"]},
+            },
+        },
         "get_flight_load_factor": {"description": "Return staff load-factor analytics.", "properties": {}},
         "get_route_performance": {"description": "Return staff route performance analytics.", "properties": {}},
     }

@@ -138,7 +138,7 @@ The Agent runtime separates model planning from business execution:
 
 Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
 
-The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for selected multi-step requests. `AGENT_RUNTIME_MODE=auto` keeps simple requests on single-step routing while routing recognized multi-step booking-preparation and staff route-review analysis requests into bounded ReAct. In booking-preparation mode, the customer Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. For staff analytics, the copilot combines `get_route_performance` and `analyze_reviews` observations by matching the same departure/arrival route; it does not infer that an unrelated low-rated flight belongs to the strongest-selling route, and it labels review-only route questions as poor-review signals instead of forcing a sales signal. The actual purchase remains a user-driven web workflow with payment fields.
+The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for selected multi-step requests. `AGENT_RUNTIME_MODE=auto` keeps simple requests on single-step routing while routing recognized multi-step booking-preparation and staff route-review analysis requests into bounded ReAct. In booking-preparation mode, the customer Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. For staff analytics, the copilot combines `get_route_performance` and `analyze_reviews` observations by matching the same departure/arrival route; it does not infer that an unrelated low-rated flight belongs to the strongest-selling route. Review-only questions such as highest-rated route, worst-reviewed route, or highest-rated flight use review analytics only, sort in the requested direction, and omit sales/revenue columns. The actual purchase remains a user-driven web workflow with payment fields.
 
 P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. Booking purchase follows the same high-risk boundary by handing off to the Search Flights page instead of completing inside chat.
 
@@ -513,9 +513,9 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `72 passed, 18 skipped` |
+| Local fast regression suite | `python -m pytest tests -q` | `76 passed, 18 skipped` |
 | Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | Previous baseline: `77 passed`; rerun pending after latest P3 changes |
-| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `19 passed` |
+| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `23 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
