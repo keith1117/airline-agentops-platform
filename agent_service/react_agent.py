@@ -46,7 +46,7 @@ class ReActAgent:
 
     def _register_tools(self) -> None:
         self.registry.register(Tool("search_flights", "Search available future flights.", ["customer"], search_flights, risk="safe_read"))
-        self.registry.register(Tool("get_customer_trips", "Return a customer's trips.", ["customer"], get_customer_trips, risk="safe_read"))
+        self.registry.register(Tool("get_customer_trips", "Return a customer's upcoming uncancelled trips.", ["customer"], get_customer_trips, risk="safe_read"))
         self.registry.register(Tool("get_customer_ticket", "Return one customer ticket by ticket ID.", ["customer"], get_customer_ticket, risk="safe_read"))
         self.registry.register(Tool("preview_customer_ticket_cancellation", "Preview cancellation fee and refund before cancelling a ticket.", ["customer"], preview_customer_ticket_cancellation, risk="safe_read"))
         self.registry.register(Tool("cancel_customer_ticket", "Cancel one customer ticket and calculate refund terms.", ["customer"], cancel_customer_ticket, risk="human_confirmed"))
@@ -1323,9 +1323,9 @@ class ReActAgent:
     def _format_trips(result: Dict[str, Any]) -> str:
         rows = result.get("trips", [])
         if not rows:
-            return "No trips were found for this customer."
+            return "You do not have any upcoming trips."
         return "\n".join(
-            ["Here are this customer's recent trips:"]
+            ["Here are your upcoming trips:"]
             + [
                 f"- Ticket {row['ticket_ID']}: {row['airline_name']} {row['flight_number']} "
                 f"{row['departure_airport']} -> {row['arrival_airport']} at {row['departure_date_time']} ({row['status']})"

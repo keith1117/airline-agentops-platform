@@ -133,8 +133,9 @@ def get_customer_trips(customer_email: str) -> Dict[str, Any]:
                   ON c.ticket_id=t.ticket_ID
                  AND c.customer_email=t.customer_email
                 WHERE t.customer_email=%s
+                  AND f.departure_date_time >= NOW()
                   AND c.id IS NULL
-                ORDER BY f.departure_date_time DESC
+                ORDER BY f.departure_date_time ASC
                 LIMIT 20
                 """,
                 (customer_email,),

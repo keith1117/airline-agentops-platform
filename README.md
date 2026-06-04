@@ -54,6 +54,7 @@ Customer Booking Agent at `/customer/agent`:
 - Display customer-facing answers, citations, structured flight results, and booking handoff button; internal tool calls are still recorded in backend traces
 - P1 Memory prompt: `Remember I prefer United and usually fly SFO to LAX under 500`
 - Later memory-backed search: `Find flights next month`
+- Ask `Show my tickets and trips` to retrieve only the logged-in customer's upcoming, uncancelled trips; historical trips are not presented as active travel
 
 Staff Operations Copilot at `/staff/copilot`:
 
@@ -87,6 +88,8 @@ Staff tools:
 The agent cannot execute raw SQL. Database-backed actions must go through registered tools. Customer sessions cannot call staff-only tools.
 
 Customer-facing flight availability excludes cancelled flights. Cancelled inventory remains available to staff workflows for operational review, but it is not shown as bookable inventory in customer search or customer Agent flight results.
+
+`get_customer_trips` uses the same active-trip boundary as the My Flights page: it is scoped to the authenticated customer and returns only future, uncancelled trips.
 
 The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
 
