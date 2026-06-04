@@ -421,6 +421,20 @@ def test_bounded_react_staff_route_review_analysis_uses_two_staff_tools(monkeypa
                     {"flight_number": "P0206", "avg_rating": 2.0, "review_count": 5},
                     {"flight_number": "SYN00058", "avg_rating": 4.5, "review_count": 2},
                 ],
+                "route_summary": [
+                    {
+                        "departure_airport": "SFO",
+                        "arrival_airport": "LAX",
+                        "avg_rating": 2.0,
+                        "review_count": 5,
+                    },
+                    {
+                        "departure_airport": "JFK",
+                        "arrival_airport": "ORD",
+                        "avg_rating": 4.5,
+                        "review_count": 2,
+                    },
+                ],
                 "comments": [],
             }
         raise AssertionError(f"unexpected tool call {tool_name}")
@@ -440,10 +454,57 @@ def test_bounded_react_staff_route_review_analysis_uses_two_staff_tools(monkeypa
     assert resp["execution"]["stop_reason"] == "final_answer"
     assert resp["execution"]["step_count"] == 2
     assert "SFO -> LAX" in resp["answer"]
-    assert "P0206" in resp["answer"]
-    assert "review" in resp["answer"].lower()
+    assert "42 tickets" in resp["answer"]
+    assert "2.00" in resp["answer"]
+    assert "JFK -> ORD" not in resp["answer"]
     assert resp["tables"]
+    assert resp["tables"][0]["route"] == "SFO -> LAX"
+    assert resp["tables"][0]["signal"] == "Strong sales + poor reviews"
     assert [step["type"] for step in resp["execution"]["trajectory"]].count("action") == 2
+
+
+def test_bounded_react_staff_route_review_analysis_does_not_join_unrelated_signals(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    def fake_call(role, tool_name, **kwargs):
+        if tool_name == "get_route_performance":
+            return {
+                "rows": [
+                    {
+                        "departure_airport": "ATL",
+                        "arrival_airport": "AUS",
+                        "tickets": 9,
+                        "estimated_revenue": 7047.28,
+                    }
+                ]
+            }
+        if tool_name == "analyze_reviews":
+            return {
+                "summary": [{"flight_number": "SYN00011", "avg_rating": 1.0, "review_count": 1}],
+                "route_summary": [
+                    {
+                        "departure_airport": "AUS",
+                        "arrival_airport": "ATL",
+                        "avg_rating": 1.0,
+                        "review_count": 1,
+                    }
+                ],
+                "comments": [],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.staff_chat(
+        "staff-bounded-no-route-overlap",
+        "alice",
+        "United",
+        "Which route has strong sales but poor reviews?",
+    )
+
+    assert "could not identify a route" in resp["answer"].lower()
+    assert resp["tables"] == []
 
 
 def test_bounded_runtime_rejects_confirm_booking_tool(monkeypatch):

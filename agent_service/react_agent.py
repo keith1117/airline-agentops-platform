@@ -1467,63 +1467,56 @@ class ReActAgent:
         review_result: Dict[str, Any],
     ) -> tuple[str, List[Dict[str, Any]]]:
         routes = route_result.get("rows") or []
-        reviews = review_result.get("summary") or []
-        if not routes and not reviews:
+        route_reviews = review_result.get("route_summary") or []
+        if not routes and not route_reviews:
             return "No route performance or review rows were found.", []
 
-        top_route = routes[0] if routes else {}
-        worst_review = reviews[0] if reviews else {}
-        table: List[Dict[str, Any]] = []
-        lines = []
-
-        if top_route:
-            route_label = f"{top_route.get('departure_airport')} -> {top_route.get('arrival_airport')}"
-            tickets = top_route.get("tickets", 0)
-            revenue = float(top_route.get("estimated_revenue") or 0)
-            lines.append(
-                f"Strongest route by ticket volume: {route_label} with {tickets} tickets "
-                f"and estimated revenue ${revenue:.2f}."
-            )
-            table.append(
+        sales_by_route = {
+            (row.get("departure_airport"), row.get("arrival_airport")): row
+            for row in routes
+        }
+        correlated: List[Dict[str, Any]] = []
+        for review in route_reviews:
+            key = (review.get("departure_airport"), review.get("arrival_airport"))
+            sales = sales_by_route.get(key)
+            if not sales:
+                continue
+            rating = float(review.get("avg_rating") or 0)
+            correlated.append(
                 {
-                    "signal": "Strong route",
-                    "route": route_label,
-                    "tickets": tickets,
-                    "estimated_revenue": revenue,
-                    "flight_number": "",
-                    "avg_rating": "",
-                    "review_count": "",
+                    "signal": "Strong sales + poor reviews" if rating <= 3.0 else "Sales + reviews available",
+                    "route": f"{key[0]} -> {key[1]}",
+                    "tickets": int(sales.get("tickets") or 0),
+                    "estimated_revenue": float(sales.get("estimated_revenue") or 0),
+                    "avg_rating": rating,
+                    "review_count": int(review.get("review_count") or 0),
                 }
             )
 
-        if worst_review:
-            flight_number = worst_review.get("flight_number")
-            avg_rating = worst_review.get("avg_rating")
-            review_count = worst_review.get("review_count", 0)
-            lines.append(
-                f"Lowest-rated reviewed flight: {flight_number} with average rating "
-                f"{float(avg_rating):.2f} across {review_count} reviews."
-            )
-            table.append(
-                {
-                    "signal": "Lowest-rated reviewed flight",
-                    "route": "",
-                    "tickets": "",
-                    "estimated_revenue": "",
-                    "flight_number": flight_number,
-                    "avg_rating": float(avg_rating),
-                    "review_count": review_count,
-                }
+        if not correlated:
+            return (
+                "I could not identify a route where the sales and review observations refer to the same route.",
+                [],
             )
 
-        if routes and reviews:
-            lines.append(
-                "Recommendation: prioritize investigation where high-demand routes and low-rated flight "
-                "experience overlap; the current tools provide route demand and flight review signals as "
-                "separate observations."
+        poor_routes = [row for row in correlated if row["avg_rating"] <= 3.0]
+        poor_routes.sort(key=lambda row: (-row["tickets"], -row["estimated_revenue"], row["avg_rating"]))
+        if not poor_routes:
+            correlated.sort(key=lambda row: (row["avg_rating"], -row["tickets"]))
+            return (
+                "No reviewed route currently meets the poor-review threshold of 3.0 or below. "
+                "The table shows the lowest-rated routes that also have sales data.",
+                correlated,
             )
 
-        return "\n\n".join(lines), table
+        candidate = poor_routes[0]
+        answer = (
+            f"Route with the strongest sales among poorly reviewed routes: {candidate['route']} with "
+            f"{candidate['tickets']} tickets, estimated revenue ${candidate['estimated_revenue']:.2f}, "
+            f"and an average rating of {candidate['avg_rating']:.2f} across "
+            f"{candidate['review_count']} route-linked reviews."
+        )
+        return answer, poor_routes
 
 
 def _normalize_flight_number(value: Any) -> Optional[str]:

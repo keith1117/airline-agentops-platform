@@ -74,6 +74,23 @@ def analyze_reviews(airline_name: str, limit: int = 10) -> Dict[str, Any]:
             summary = _serialize_rows(cur.fetchall())
             cur.execute(
                 """
+                SELECT f.departure_airport, f.arrival_airport,
+                       AVG(r.rating) AS avg_rating, COUNT(*) AS review_count
+                FROM Review r
+                JOIN Flight f
+                  ON f.airline_name=r.airline_name
+                 AND f.flight_number=r.flight_number
+                 AND f.departure_date_time=r.departure_date_time
+                WHERE r.airline_name=%s
+                GROUP BY f.departure_airport, f.arrival_airport
+                ORDER BY avg_rating ASC, review_count DESC
+                LIMIT %s
+                """,
+                (airline_name, limit),
+            )
+            route_summary = _serialize_rows(cur.fetchall())
+            cur.execute(
+                """
                 SELECT flight_number, rating, comment, created_at
                 FROM Review
                 WHERE airline_name=%s
@@ -83,7 +100,7 @@ def analyze_reviews(airline_name: str, limit: int = 10) -> Dict[str, Any]:
                 (airline_name, limit),
             )
             comments = _serialize_rows(cur.fetchall())
-        return {"summary": summary, "comments": comments}
+        return {"summary": summary, "route_summary": route_summary, "comments": comments}
     finally:
         conn.close()
 
