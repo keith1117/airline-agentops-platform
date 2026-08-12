@@ -150,6 +150,71 @@ def test_customer_cheapest_search_displays_only_selected_lowest_price(monkeypatc
     assert "UA900" not in resp["answer"]
 
 
+def test_bounded_react_generic_booking_search_keeps_multiple_candidates_without_handoff(monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    def fake_call(role, tool_name, **kwargs):
+        if tool_name == "search_flights":
+            return {
+                "count": 3,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA100",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-04-15 08:00:00",
+                        "arrival_date_time": "2027-04-15 09:15:00",
+                        "base_price": 231.51,
+                        "seats_left": 179,
+                        "status": "ON_TIME",
+                    },
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA900",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-06-01 08:00:00",
+                        "arrival_date_time": "2027-06-01 16:30:00",
+                        "base_price": 355.98,
+                        "seats_left": 218,
+                        "status": "ON_TIME",
+                    },
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA800",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-11-08 08:00:00",
+                        "arrival_date_time": "2027-11-08 16:30:00",
+                        "base_price": 628.26,
+                        "seats_left": 219,
+                        "status": "ON_TIME",
+                    },
+                ],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "generic-booking-search",
+        "testcustomer@nyu.edu",
+        "Find all United flight from SFO to BOS and prepare a booking.",
+    )
+
+    search_call = [call for call in resp["tool_calls"] if call["name"] == "search_flights"][0]
+    assert search_call["result"]["count"] == 3
+    assert [flight["flight_number"] for flight in search_call["result"]["flights"]] == ["UA100", "UA900", "UA800"]
+    assert resp.get("pending_booking_search") is None
+    assert resp["execution"]["stop_reason"] == "booking_selection_required"
+    assert "I found multiple bookable flights" in resp["answer"]
+    assert "UA100" in resp["answer"]
+    assert "UA900" in resp["answer"]
+    assert "UA800" in resp["answer"]
+
+
 def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)

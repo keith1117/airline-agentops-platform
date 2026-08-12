@@ -142,6 +142,58 @@ def test_agent_templates_render_structured_messages():
     assert "#agent-bottom" in staff
 
 
+def test_customer_agent_does_not_show_book_button_for_multi_flight_result_without_handoff():
+    messages = present_agent_messages([
+        {
+            "role": "assistant",
+            "content": "Here are matching available flights.",
+            "meta": {
+                "tool_calls": [
+                    {
+                        "name": "search_flights",
+                        "args": {"departure_airport": "SFO", "arrival_airport": "BOS"},
+                        "result": {
+                            "count": 2,
+                            "flights": [
+                                {
+                                    "airline_name": "United",
+                                    "flight_number": "UA100",
+                                    "departure_airport": "SFO",
+                                    "arrival_airport": "BOS",
+                                    "departure_date_time": "2027-04-15 08:00:00",
+                                    "arrival_date_time": "2027-04-15 09:15:00",
+                                    "base_price": 231.51,
+                                    "seats_left": 179,
+                                    "status": "ON_TIME",
+                                },
+                                {
+                                    "airline_name": "United",
+                                    "flight_number": "UA900",
+                                    "departure_airport": "SFO",
+                                    "arrival_airport": "BOS",
+                                    "departure_date_time": "2027-06-01 08:00:00",
+                                    "arrival_date_time": "2027-06-01 16:30:00",
+                                    "base_price": 355.98,
+                                    "seats_left": 218,
+                                    "status": "ON_TIME",
+                                },
+                            ],
+                        },
+                    }
+                ]
+            },
+        }
+    ])
+
+    customer = render_template("customer_agent.html", messages=messages, agent_url="http://agent:8001")
+
+    assert "Flight results" in customer
+    assert "UA100" in customer
+    assert "UA900" in customer
+    assert "Continue booking" not in customer
+    assert "<button type=\"submit\">Book</button>" not in customer
+
+
 class _PurchaseCursor:
     def __init__(self):
         self.results = []

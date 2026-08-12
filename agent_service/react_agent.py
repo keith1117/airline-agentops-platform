@@ -468,13 +468,31 @@ class ReActAgent:
             self._append_final_answer(execution, "I could not find a bookable matching flight in the current inventory.")
             return {"answer": "I could not find a bookable matching flight in the current inventory."}
 
-        selected = self._select_cheapest_flight(flights)
-        if not selected:
+        bookable_flights = self._bookable_flights(flights)
+        if not bookable_flights:
             execution.update({"stop_reason": "no_flights", "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"])})
             answer = "I found flight records, but none are bookable for a pending booking intent."
             self._append_final_answer(execution, answer)
             return {"answer": answer}
 
+        wants_cheapest = self._asks_for_cheapest(message.lower())
+        if not wants_cheapest and len(bookable_flights) > 1:
+            execution.update(
+                {
+                    "stop_reason": "booking_selection_required",
+                    "confirmation_required": False,
+                    "step_count": len([s for s in execution["trajectory"] if s.get("type") == "action"]),
+                }
+            )
+            answer = (
+                f"{self._format_flights(search_result)}\n\n"
+                "I found multiple bookable flights. Please choose one by flight number and departure time, "
+                "or ask for the cheapest option."
+            )
+            self._append_final_answer(execution, answer)
+            return {"answer": answer}
+
+        selected = self._select_cheapest_flight(bookable_flights)
         selected_result = self._single_flight_result(search_result, selected)
         self._replace_last_tool_result(tool_calls, execution, "search_flights", selected_result)
         execution.update(
@@ -518,14 +536,19 @@ class ReActAgent:
 
     @staticmethod
     def _select_cheapest_flight(flights: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        candidates = ReActAgent._bookable_flights(flights)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda flight: (float(flight.get("base_price") or 0), str(flight.get("departure_date_time") or "")))
+
+    @staticmethod
+    def _bookable_flights(flights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         candidates = [
             flight
             for flight in flights
             if str(flight.get("status", "")).upper() != "CANCELLED" and int(flight.get("seats_left") or 0) > 0
         ]
-        if not candidates:
-            return None
-        return min(candidates, key=lambda flight: (float(flight.get("base_price") or 0), str(flight.get("departure_date_time") or "")))
+        return candidates
 
     @staticmethod
     def _single_flight_result(search_result: Dict[str, Any], flight: Dict[str, Any]) -> Dict[str, Any]:
