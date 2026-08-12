@@ -249,6 +249,38 @@ def _policy_sections() -> List[Dict[str, str]]:
         sections.append(current)
     return sections
 
+
+def _visible_customer_trip_sql(extra_where: str = "") -> str:
+    suffix = f" {extra_where}" if extra_where else ""
+    return f"""
+        SELECT t.ticket_ID, f.airline_name, f.flight_number, f.departure_date_time,
+               f.departure_airport, f.arrival_airport, f.arrival_date_time, f.status
+        FROM Ticket t
+        JOIN Flight f
+          ON t.airline_name=f.airline_name
+         AND t.flight_number=f.flight_number
+         AND t.departure_date_time=f.departure_date_time
+        LEFT JOIN ticket_cancellations c
+          ON c.customer_email=t.customer_email
+         AND c.ticket_id=t.ticket_ID
+        WHERE t.customer_email=%s
+          AND f.departure_date_time >= NOW()
+          AND c.id IS NULL
+          {suffix}
+        ORDER BY f.departure_date_time
+    """
+
+
+def _next_ticket_id_sql() -> str:
+    return """
+        SELECT COALESCE(MAX(ticket_id), 0) + 1 AS next_id
+        FROM (
+            SELECT ticket_ID AS ticket_id FROM Ticket
+            UNION
+            SELECT ticket_id FROM ticket_cancellations
+        ) used_ticket_ids
+    """
+
 def build_staff_query(
     airline: str,
     period: str,
@@ -462,23 +494,7 @@ def customer_home():
     ensure_agent_schema(retries=1, delay_seconds=0)
     email = session["email"]
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT t.ticket_ID, f.airline_name, f.flight_number, f.departure_date_time,
-                   f.departure_airport, f.arrival_airport, f.arrival_date_time, f.status
-            FROM Ticket t
-            JOIN Flight f
-              ON t.airline_name=f.airline_name
-             AND t.flight_number=f.flight_number
-             AND t.departure_date_time=f.departure_date_time
-            LEFT JOIN ticket_cancellations c
-              ON c.customer_email=t.customer_email
-             AND c.ticket_id=t.ticket_ID
-            WHERE t.customer_email=%s AND f.departure_date_time >= NOW() AND c.id IS NULL
-            ORDER BY f.departure_date_time
-            """,
-            (email,),
-        )
+        cur.execute(_visible_customer_trip_sql(), (email,))
         flights = cur.fetchall()
     return render_template("customer_home.html", name=session["display"], flights=flights)
 
@@ -601,6 +617,7 @@ def customer_search():
 def customer_purchase():
     if not as_customer():
         return redirect(url_for("login"))
+    ensure_agent_schema(retries=1, delay_seconds=0)
 
     email   = session["email"]
     airline = request.form.get("airline_name", "").strip()
@@ -658,7 +675,7 @@ def customer_purchase():
             flash("Card number length must be between 13 and 19 digits.")
             return redirect(url_for("customer_search"))
 
-        cur.execute("SELECT COALESCE(MAX(ticket_ID),0)+1 AS next_id FROM Ticket")
+        cur.execute(_next_ticket_id_sql())
         next_id = cur.fetchone()["next_id"]
 
         cur.execute(
@@ -672,6 +689,20 @@ def customer_purchase():
             (next_id, email, airline, flight, dep_dt,
              card_type, card_number, name_on_card, exp_date),
         )
+
+        cur.execute(
+            _visible_customer_trip_sql("AND t.ticket_ID=%s"),
+            (email, next_id),
+        )
+        visible_ticket = cur.fetchone()
+        if not visible_ticket:
+            cur.execute(
+                "DELETE FROM Ticket WHERE ticket_ID=%s AND customer_email=%s",
+                (next_id, email),
+            )
+            conn.commit()
+            flash("Purchase could not be completed because the ticket is not visible in My Flights.")
+            return redirect(url_for("customer_search"))
 
     conn.commit()
     flash(f"Ticket purchased (#{next_id})")

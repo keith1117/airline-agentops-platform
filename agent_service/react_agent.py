@@ -176,6 +176,7 @@ class ReActAgent:
                         "result": result,
                     }
                 )
+                result = self._maybe_narrow_cheapest_result(message, result, tool_calls, execution)
                 answer = self._format_flights(result)
             else:
                 answer = self._customer_scope_fallback()
@@ -474,6 +475,8 @@ class ReActAgent:
             self._append_final_answer(execution, answer)
             return {"answer": answer}
 
+        selected_result = self._single_flight_result(search_result, selected)
+        self._replace_last_tool_result(tool_calls, execution, "search_flights", selected_result)
         execution.update(
             {
                 "stop_reason": "booking_search_ready",
@@ -523,6 +526,62 @@ class ReActAgent:
         if not candidates:
             return None
         return min(candidates, key=lambda flight: (float(flight.get("base_price") or 0), str(flight.get("departure_date_time") or "")))
+
+    @staticmethod
+    def _single_flight_result(search_result: Dict[str, Any], flight: Dict[str, Any]) -> Dict[str, Any]:
+        narrowed = dict(search_result)
+        narrowed["flights"] = [flight]
+        narrowed["count"] = 1
+        narrowed["selected_from_count"] = search_result.get("count", len(search_result.get("flights") or []))
+        return narrowed
+
+    def _maybe_narrow_cheapest_result(
+        self,
+        message: str,
+        result: Dict[str, Any],
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not self._asks_for_cheapest(message.lower()):
+            return result
+        selected = self._select_cheapest_flight(result.get("flights") or [])
+        if not selected:
+            return result
+        narrowed = self._single_flight_result(result, selected)
+        self._replace_last_tool_result(tool_calls, execution, "search_flights", narrowed)
+        return narrowed
+
+    @staticmethod
+    def _asks_for_cheapest(lower: str) -> bool:
+        return any(
+            phrase in lower
+            for phrase in [
+                "cheapest",
+                "lowest price",
+                "lowest fare",
+                "lowest cost",
+                "least expensive",
+                "most affordable",
+                "最便宜",
+                "最低价",
+            ]
+        )
+
+    @staticmethod
+    def _replace_last_tool_result(
+        tool_calls: List[Dict[str, Any]],
+        execution: Dict[str, Any],
+        tool_name: str,
+        result: Dict[str, Any],
+    ) -> None:
+        for call in reversed(tool_calls):
+            if call.get("name") == tool_name:
+                call["result"] = result
+                break
+        for step in reversed(execution.get("trajectory", [])):
+            if step.get("type") == "observation" and step.get("tool") == tool_name:
+                step["content"] = result
+                break
 
     def _try_customer_llm_route(
         self,
@@ -665,6 +724,7 @@ class ReActAgent:
             execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
             tool_calls.append({"name": "search_flights", "args": tool_args, "result": result})
             self._trajectory_observation(execution, "search_flights", result)
+            result = self._maybe_narrow_cheapest_result(message, result, tool_calls, execution)
             return {"answer": self._format_flights(result)}
         if tool == "get_customer_trips":
             self._trajectory_action(execution, "get_customer_trips", {"customer_email": customer_email})
@@ -1382,7 +1442,12 @@ class ReActAgent:
         rows = result.get("flights", [])
         if not rows:
             return "No matching future flights were found in the current inventory."
-        lines = ["Here are matching available flights:"]
+        if result.get("selected_from_count"):
+            lines = ["Here is the cheapest matching available flight:"]
+        elif len(rows) == 1:
+            lines = ["Here is the matching available flight:"]
+        else:
+            lines = ["Here are matching available flights:"]
         for row in rows[:6]:
             lines.append(
                 f"- {row['airline_name']} {row['flight_number']}: {row['departure_airport']} -> "

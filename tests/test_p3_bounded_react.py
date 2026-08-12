@@ -86,6 +86,70 @@ def test_bounded_react_booking_preparation_searches_then_returns_bookable_select
     assert all(step["type"] != "reasoning_summary" for step in resp["execution"]["trajectory"])
 
 
+def test_customer_cheapest_search_displays_only_selected_lowest_price(monkeypatch):
+    settings = Settings(agent_runtime_mode="single_step", agent_router_mode="deterministic")
+    agent = make_agent(settings)
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    def fake_call(role, tool_name, **kwargs):
+        if tool_name == "search_flights":
+            return {
+                "count": 3,
+                "flights": [
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA900",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-06-01 08:00:00",
+                        "arrival_date_time": "2027-06-01 16:30:00",
+                        "base_price": 355.98,
+                        "seats_left": 218,
+                        "status": "ON_TIME",
+                    },
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA100",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-04-15 08:00:00",
+                        "arrival_date_time": "2027-04-15 09:15:00",
+                        "base_price": 231.51,
+                        "seats_left": 179,
+                        "status": "ON_TIME",
+                    },
+                    {
+                        "airline_name": "United",
+                        "flight_number": "UA800",
+                        "departure_airport": "SFO",
+                        "arrival_airport": "BOS",
+                        "departure_date_time": "2027-11-08 08:00:00",
+                        "arrival_date_time": "2027-11-08 16:30:00",
+                        "base_price": 628.26,
+                        "seats_left": 219,
+                        "status": "ON_TIME",
+                    },
+                ],
+            }
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat(
+        "cheapest-search",
+        "testcustomer@nyu.edu",
+        "Find the cheapest United flight from SFO to BOS",
+    )
+
+    search_call = [call for call in resp["tool_calls"] if call["name"] == "search_flights"][0]
+    assert search_call["result"]["count"] == 1
+    assert search_call["result"]["selected_from_count"] == 3
+    assert search_call["result"]["flights"][0]["flight_number"] == "UA100"
+    assert "Here is the cheapest matching available flight" in resp["answer"]
+    assert "UA100" in resp["answer"]
+    assert "UA900" not in resp["answer"]
+
+
 def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypatch):
     agent = make_agent()
     monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
