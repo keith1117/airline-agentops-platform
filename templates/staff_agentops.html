@@ -1,0 +1,164 @@
+{% extends 'layout.html' %}
+{% block title %}AgentOps Dashboard{% endblock %}
+{% block content %}
+{% set summary = dashboard.get('summary', {}) %}
+{% set metrics = dashboard.get('metrics', {}) %}
+{% set options = dashboard.get('filter_options', {}) %}
+<div class="page-header">
+  <div>
+    <p class="page-kicker">Agent observability</p>
+    <h1 class="page-title">AgentOps Dashboard</h1>
+    <p class="muted">Inspect bounded Agent execution paths, tool activity, fallbacks, and latency.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
+</div>
+
+{% if dashboard.get('error') %}
+<div class="trace-alert trace-alert-error">{{ dashboard.error }}</div>
+{% endif %}
+
+<section class="metric-grid agentops-metrics" aria-label="Agent trace metrics">
+  <div class="card metric-card"><span>Traces</span><strong>{{ summary.get('total_traces', 0) }}</strong></div>
+  <div class="card metric-card"><span>Average latency</span><strong>{{ summary.get('avg_latency_ms', 0) }} ms</strong></div>
+  <div class="card metric-card"><span>Average steps</span><strong>{{ summary.get('avg_steps', 0) }}</strong></div>
+  <div class="card metric-card"><span>Fallback rate</span><strong>{{ (summary.get('fallback_rate', 0) * 100)|round(1) }}%</strong></div>
+  <div class="card metric-card"><span>Errors</span><strong>{{ summary.get('error_count', 0) }}</strong></div>
+  <div class="card metric-card"><span>Confirmation gates</span><strong>{{ summary.get('confirmation_required_count', 0) }}</strong></div>
+</section>
+
+<section class="card agentops-toolbar">
+  <form method="get" class="agentops-filter-grid">
+    <label>Role
+      <select name="role">
+        <option value="">All roles</option>
+        {% for value in options.get('roles', []) %}
+        <option value="{{ value }}" {% if filters.get('role') == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Request path
+      <select name="request_path">
+        <option value="">All paths</option>
+        {% for value in options.get('request_paths', []) %}
+        <option value="{{ value }}" {% if filters.get('request_path') == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Runtime mode
+      <select name="runtime_mode">
+        <option value="">All modes</option>
+        {% for value in options.get('runtime_modes', []) %}
+        <option value="{{ value }}" {% if filters.get('runtime_mode') == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Outcome
+      <select name="outcome">
+        <option value="">All outcomes</option>
+        {% for value in ['success', 'fallback', 'error'] %}
+        <option value="{{ value }}" {% if filters.get('outcome') == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Rows
+      <select name="limit">
+        {% for value in [25, 50, 100, 200] %}
+        <option value="{{ value }}" {% if filters.get('limit')|int == value %}selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="agentops-filter-actions">
+      <button type="submit">Apply</button>
+      <a class="btn btn-secondary" href="{{ url_for('staff_agentops') }}">Reset</a>
+    </div>
+  </form>
+</section>
+
+<section class="card agentops-runtime">
+  <div class="section-heading">
+    <div>
+      <h2>Runtime requests</h2>
+      <p class="muted">Metrics collected since the current Agent service started.</p>
+    </div>
+    <div class="runtime-totals">
+      <span><strong>{{ metrics.get('total_requests', 0) }}</strong> requests</span>
+      <span><strong>{{ metrics.get('error_count', 0) }}</strong> errors</span>
+      <span><strong>{{ metrics.get('avg_latency_ms', 0) }}</strong> ms avg</span>
+    </div>
+  </div>
+  <div class="data-table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>Tool calls</th><th>Avg latency</th></tr></thead>
+      <tbody>
+      {% for endpoint, values in metrics.get('endpoints', {}).items() %}
+        <tr>
+          <td>{{ endpoint }}</td>
+          <td>{{ values.get('count', 0) }}</td>
+          <td>{{ values.get('error_count', 0) }}</td>
+          <td>{{ values.get('tool_calls', 0) }}</td>
+          <td>{{ values.get('avg_latency_ms', 0) }} ms</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No runtime requests recorded since service startup.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="agentops-traces" aria-label="Agent trace viewer">
+  <div class="section-heading">
+    <div>
+      <h2>Trace viewer</h2>
+      <p class="muted">Showing {{ dashboard.get('returned_traces', 0) }} traces from {{ dashboard.get('scanned_traces', 0) }} scanned records.</p>
+    </div>
+  </div>
+  <div class="trace-list">
+  {% for trace in dashboard.get('traces', []) %}
+    <article class="trace-record trace-{{ trace.outcome }}">
+      <div class="trace-heading">
+        <div>
+          <span class="trace-id">Trace #{{ trace.id }}</span>
+          <strong>{{ trace.role }} · {{ trace.request_path }}</strong>
+          <span class="muted">{{ trace.created_at }}</span>
+        </div>
+        <span class="status-chip {% if trace.outcome == 'success' %}ok{% elif trace.outcome == 'error' %}cancelled{% else %}delayed{% endif %}">{{ trace.outcome }}</span>
+      </div>
+      <div class="trace-meta">
+        <span class="trace-chip">runtime {{ trace.runtime_mode_used }}</span>
+        <span class="trace-chip">router {{ trace.router_used }}</span>
+        <span class="trace-chip">{{ trace.step_count }} steps</span>
+        <span class="trace-chip">stop {{ trace.stop_reason }}</span>
+        <span class="trace-chip">{{ trace.latency_ms }} ms</span>
+        {% if trace.confirmation_required %}<span class="trace-chip trace-chip-warning">confirmation required</span>{% endif %}
+      </div>
+      <div class="trace-copy-grid">
+        <div><span>User request</span><p>{{ trace.user_message }}</p></div>
+        <div><span>Final answer</span><p>{{ trace.final_answer or 'No final answer recorded.' }}</p></div>
+      </div>
+      <div class="trace-tools">
+        <span>Tools used</span>
+        {% for tool in trace.tools_used %}<code>{{ tool }}</code>{% else %}<span class="muted">none</span>{% endfor %}
+      </div>
+      {% if trace.fallback_reason %}<div class="trace-alert">Fallback: {{ trace.fallback_reason }}</div>{% endif %}
+      {% if trace.error %}<div class="trace-alert trace-alert-error">Error: {{ trace.error }}</div>{% endif %}
+      <details class="trace-trajectory">
+        <summary>View bounded trajectory</summary>
+        <ol>
+        {% for step in trace.trajectory %}
+          <li class="trajectory-step">
+            <div><strong>{{ step.type }}</strong>{% if step.tool %}<code>{{ step.tool }}</code>{% endif %}</div>
+            <pre>{{ step.display }}</pre>
+          </li>
+        {% else %}
+          <li class="muted">No structured trajectory was recorded for this trace.</li>
+        {% endfor %}
+        </ol>
+      </details>
+    </article>
+  {% else %}
+    <div class="card empty-state">No traces match the selected filters.</div>
+  {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -22,6 +22,7 @@
         {% elif session.get('role') == 'staff' %}
           <a href="{{ url_for('staff_home') }}">Staff</a>
           <a href="{{ url_for('staff_copilot') }}">AI Copilot</a>
+          <a href="{{ url_for('staff_agentops') }}">AgentOps</a>
           <a href="{{ url_for('staff_create_flight') }}">Create Flight</a>
           <a href="{{ url_for('staff_change_status') }}">Change Status</a>
           <a href="{{ url_for('staff_add_airplane') }}">Add Airplane</a>

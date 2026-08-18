@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .agentops import load_agentops_dashboard
 from .db import ensure_agent_schema, get_conn
 from .metrics import MetricsCollector
 from .rag import PolicyRAG
@@ -79,6 +80,24 @@ def health():
 @app.get("/api/metrics")
 def get_metrics():
     return metrics.snapshot()
+
+
+@app.get("/api/agentops/dashboard")
+def get_agentops_dashboard(
+    role: str = "",
+    request_path: str = "",
+    runtime_mode: str = "",
+    outcome: str = "",
+    limit: int = 50,
+):
+    return load_agentops_dashboard(
+        metrics.snapshot(),
+        role=role,
+        request_path=request_path,
+        runtime_mode=runtime_mode,
+        outcome=outcome,
+        limit=limit,
+    )
 
 
 @app.post("/api/agent/customer/chat")

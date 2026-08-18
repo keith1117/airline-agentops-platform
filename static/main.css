@@ -257,9 +257,96 @@ label { font-weight: 650; color: var(--color-navy); }
 }
 .preview-card .muted { color: rgba(255, 255, 255, 0.72); }
 
+.agentops-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.agentops-toolbar { margin-bottom: 18px; }
+.agentops-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.agentops-filter-grid label { display: grid; gap: 6px; }
+.agentops-filter-grid select { width: 100%; min-width: 0; }
+.agentops-filter-actions { display: flex; gap: 8px; }
+.agentops-runtime { margin-bottom: 24px; }
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.section-heading h2 { margin: 0; color: var(--color-navy); }
+.section-heading p { margin: 4px 0 0; }
+.runtime-totals { display: flex; gap: 14px; flex-wrap: wrap; color: var(--color-muted); }
+.runtime-totals strong { color: var(--color-navy); }
+.agentops-traces { margin-top: 18px; }
+.trace-list { display: grid; gap: 14px; }
+.trace-record {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid #8ea4bd;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+  min-width: 0;
+}
+.trace-record.trace-success { border-left-color: var(--color-success); }
+.trace-record.trace-fallback { border-left-color: var(--color-warning); }
+.trace-record.trace-error { border-left-color: #a23222; }
+.trace-heading { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
+.trace-heading > div { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; min-width: 0; }
+.trace-id { color: var(--color-orange-dark); font-weight: 800; }
+.trace-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.trace-chip {
+  display: inline-flex;
+  border: 1px solid #bfd2ea;
+  background: #eef6ff;
+  color: #1f4f82;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 750;
+}
+.trace-chip-warning { border-color: #efc886; background: #fff6e5; color: var(--color-warning); }
+.trace-copy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.trace-copy-grid > div { border-top: 1px solid var(--color-border); padding-top: 10px; min-width: 0; }
+.trace-copy-grid span, .trace-tools > span:first-child {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.trace-copy-grid p { margin: 5px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.trace-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+.trace-tools code, .trajectory-step code { background: #edf2f7; border-radius: 4px; padding: 3px 6px; color: var(--color-navy); }
+.trace-alert { margin-top: 12px; padding: 9px 11px; border: 1px solid #efc886; border-radius: var(--radius); background: #fff6e5; color: var(--color-warning); overflow-wrap: anywhere; }
+.trace-alert-error { border-color: #e5ada6; background: #fff0ee; color: #a23222; }
+.trace-trajectory { margin-top: 12px; border-top: 1px solid var(--color-border); padding-top: 10px; }
+.trace-trajectory summary { cursor: pointer; color: var(--color-navy); font-weight: 800; }
+.trace-trajectory ol { margin: 12px 0 0; padding-left: 24px; }
+.trajectory-step { padding: 8px 0; }
+.trajectory-step > div { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.trajectory-step pre {
+  margin: 6px 0 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  color: var(--color-text);
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.empty-state { color: var(--color-muted); text-align: center; }
+
 @media (max-width: 900px) {
   .agent-layout { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agentops-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agentops-filter-actions { align-self: end; }
 }
 
 @media (max-width: 780px) {
@@ -274,4 +361,6 @@ label { font-weight: 650; color: var(--color-navy); }
   .hero-search { left: 18px; right: 18px; bottom: 18px; }
   .search-grid { grid-template-columns: 1fr; }
   .search-grid div { border-right: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 10px; }
+  .agentops-filter-grid, .trace-copy-grid { grid-template-columns: 1fr; }
+  .trace-heading, .section-heading { flex-direction: column; }
 }

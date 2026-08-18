@@ -76,6 +76,26 @@ def agent_post(path, payload):
             "pending_confirmation": None,
         }
 
+
+def agent_get(path, params=None):
+    try:
+        resp = agent_http.get(
+            f"{AGENT_SERVICE_URL}{path}",
+            params=params or {},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        return {
+            "error": f"Agent service unavailable or failed: {exc}",
+            "summary": {},
+            "traces": [],
+            "metrics": {},
+            "filters": params or {},
+            "filter_options": {},
+        }
+
 def append_agent_message(key, role, content, meta=None):
     messages = session.get(key, [])
     messages.append({"role": role, "content": content, "meta": meta or {}})
@@ -829,6 +849,27 @@ def staff_copilot():
         "staff_copilot.html",
         messages=present_agent_messages(session.get(chat_key, [])),
         airline=session.get("airline"),
+        agent_url=AGENT_SERVICE_URL,
+    )
+
+
+@app.get("/staff/agentops")
+def staff_agentops():
+    if not as_staff():
+        return redirect(url_for("login"))
+
+    filters = {
+        "role": request.args.get("role", ""),
+        "request_path": request.args.get("request_path", ""),
+        "runtime_mode": request.args.get("runtime_mode", ""),
+        "outcome": request.args.get("outcome", ""),
+        "limit": request.args.get("limit", "50"),
+    }
+    dashboard = agent_get("/api/agentops/dashboard", filters)
+    return render_template(
+        "staff_agentops.html",
+        dashboard=dashboard,
+        filters=dashboard.get("filters") or filters,
         agent_url=AGENT_SERVICE_URL,
     )
 
