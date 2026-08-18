@@ -853,6 +853,9 @@ class ReActAgent:
         )
         tool_calls.append({"name": "preview_customer_ticket_cancellation", "args": {"ticket_id": ticket_id}, "result": result})
         self._trajectory_observation(execution, "preview_customer_ticket_cancellation", result)
+        execution["step_count"] = len(
+            [step for step in execution.get("trajectory", []) if step.get("type") == "action"]
+        )
         if "error" in result:
             execution.update({"stop_reason": "tool_error", "confirmation_required": False})
             return {"answer": result["error"]}

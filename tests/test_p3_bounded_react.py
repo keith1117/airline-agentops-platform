@@ -466,6 +466,7 @@ def test_bounded_react_cancel_request_returns_preview_not_direct_cancellation(mo
     assert not any(call["name"] == "cancel_customer_ticket" for call in resp["tool_calls"])
     assert resp["pending_cancellation"]["ticket_id"] == 900090
     assert resp["execution"]["stop_reason"] == "cancellation_confirmation_required"
+    assert resp["execution"]["step_count"] == 1
     assert "confirm" in resp["answer"].lower()
 
 
