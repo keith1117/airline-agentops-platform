@@ -1,373 +1,253 @@
 # Airline AgentOps Platform
 
-Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-This project demonstrates a stable **P0–P4 AgentOps demo** for AI application engineering: AI-first structured routing, grounded policy RAG, bounded ReAct workflows, role-based analytics, persistent human confirmation, signed service identity, UTC and IANA timezone governance, trajectory export, Docker Compose, observability, and acceptance tests.
+A production-like airline operations platform that combines a Flask booking application, a FastAPI Agent service, MySQL, grounded policy RAG, bounded multi-step execution, human confirmation, and AgentOps observability.
 
-P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
+**Project status:** P0–P4 are complete and verified. The repository uses synthetic airline inventory and mock payment; it is intended for Agent engineering, governance, and full-stack demonstration rather than real airline commerce.
 
-P0.5 adds a Figma-inspired visual refresh for portfolio presentation: travel hero, refined navigation, dashboard cards, readable tables, and polished Agent/Copilot chat panels. It is presentation-only and does not change Agent behavior.
+## Overview
 
-P2 adds lightweight observability: the Agent service records request counts, latency, role labels, tool-call counts, and error counts in memory and JSONL logs. It exposes a read-only metrics endpoint for demos and Locust benchmark reporting.
+The platform serves two authenticated experiences:
 
-P2 also includes a Locust smoke-test profile for small-scale load testing. The goal is not high-scale benchmarking yet; it is a repeatable 20-user smoke that exercises customer search, policy QA, staff review analytics, staff sales reporting, and metrics collection.
+- Customers can search flights using IATA codes or English and Chinese city names, ask cited policy questions, store travel preferences, review trips, prepare bookings, and confirm cancellation previews.
+- Airline staff can use a role-scoped copilot for sales, review, load-factor, and route analysis, then inspect traces, fallbacks, latency, and confirmation events in an AgentOps dashboard.
 
-P2 also includes a deterministic synthetic data generator. By default it generates local SQL for 24 airports, 10k flights, 2k customers, 50k tickets, and 5k reviews. It does not modify MySQL unless `--apply` is explicitly passed.
+The model selects or sequences approved tools; local services enforce identity, authorization, validation, database access, and transaction boundaries. The model never receives direct SQL access and cannot complete a purchase or cancellation through ordinary chat.
 
-The main Docker MySQL demo database can also be loaded with a smaller curated professional seed: 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews. This keeps interview demos richer without mixing the full benchmark dataset into the primary demo path.
+## Capabilities
 
-P3 adds a bounded ReAct-style runtime. When explicitly enabled, the customer Agent can search available flights, observe the result, select the cheapest valid option, and stop with a `Book` handoff to the Search Flights page. Chat does not issue tickets or complete payment; the customer reviews the exact flight and purchases manually through the existing booking page. The staff copilot can also run a bounded multi-tool analysis for questions that combine route performance and review quality. P3.4 adds optional `AGENT_RUNTIME_MODE=auto`, which keeps simple requests on single-step routing and sends selected multi-step requests to bounded ReAct.
-
-Natural-language flight search supports date-level, `next month`, year-level filters such as `this year` / `next year`, and month-level filters such as `August` or `August 2027`. If a month is provided without a year, the Agent resolves it to the nearest future occurrence of that month before querying inventory.
-
-The Agent service is now **AI-first but fallback-safe**. When model credentials are configured, it can prioritize OpenAI native tool calling for tool selection, fall back to JSON structured routing, and use embedding-based grounded RAG for policy questions. Without credentials, or if an external model call fails in `auto` mode, it falls back to deterministic routing, keyword retrieval, and extractive policy answers while recording the fallback reason.
-
-It intentionally uses synthetic/demo airline inventory and mock payment. It does **not** connect to real airline inventory, real ticketing systems, or real payment processors.
+| Area | Implemented behavior |
+| --- | --- |
+| Natural-language search | Resolves IATA codes and supported English or Chinese city names, relative dates, months, years, airline preferences, and budgets against database inventory. |
+| Customer Agent | Searches bookable flights, answers grounded policy questions with citations, retrieves active trips, and remembers route, airline, and budget preferences. |
+| Booking handoff | A purchase request stops at a selected flight and opens the Search Flights checkout; chat never issues a ticket. |
+| Cancellation workflow | The Agent calculates a fee/refund preview and creates a confirmation-gated action before cancellation can execute. |
+| Staff Copilot | Runs airline-scoped sales, review, load-factor, and correlated route-performance analysis. |
+| Bounded runtime | Supports `single_step`, `bounded_react`, and `auto` execution with step limits, role-scoped tools, observations, and explicit stop reasons. |
+| Grounded RAG | Uses embedding retrieval and grounded LLM answers when configured, with keyword and extractive fallbacks when external services are unavailable. |
+| Human-in-the-loop | Persists booking and cancellation actions, expiration, decisions, idempotent results, and audit events. |
+| AgentOps | Exposes request metrics and a staff dashboard for traces, tools, runtime mode, latency, fallbacks, errors, and confirmation gates. |
+| Governance | Uses signed service identities, CSRF protection, role and airline isolation, tool risk categories, UTC storage, and IANA timezone display. |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Browser[Customer / Staff Browser] --> Flask[Flask Web App]
-    Flask --> FastAPI[FastAPI Agent Service]
-    FastAPI --> Registry[Tool Registry + Role Guard]
-    Registry --> MySQL[(MySQL Airline DB)]
-    FastAPI --> LLM[OpenAI-compatible Tool Router]
-    LLM --> Native[Native Tool Calling Adapter]
-    LLM --> JSONRouter[JSON Structured Router]
-    FastAPI --> RAG[Policy RAG Retriever]
-    RAG --> Embeddings[Embedding Cache]
+    Browser[Customer / Staff Browser] --> Web[Flask Web App]
+    Web --> Agent[FastAPI Agent Service]
+    Agent --> Router[Native / JSON / Deterministic Router]
+    Router --> Model[OpenAI-compatible API]
+    Agent --> Registry[Role-scoped Tool Registry]
+    Registry --> DB[(MySQL 8)]
+    Agent --> RAG[Policy RAG]
     RAG --> Policy[Markdown Policy KB]
-    FastAPI --> Traces[(agent_traces)]
-    FastAPI --> Metrics[Metrics JSONL + /api/metrics]
+    RAG --> Cache[Local Embedding Cache]
+    Agent --> Traces[(Agent Traces and Actions)]
+    Agent --> Metrics[Metrics JSONL and API]
 ```
 
-## P0 Demo Flows
+The Flask application owns browser sessions and user-facing workflows. It calls FastAPI with a short-lived signed service identity. FastAPI plans bounded work, validates tool access, executes local business operations, and records operational metadata.
 
-Customer Booking Agent at `/customer/agent`:
+## Technology
 
-- Search flights with IATA codes or city names in English or Chinese: `Find flights from San Francisco to Los Angeles next month` or `查询下个月从上海到波士顿的航班`
-- Ask RAG policy questions: `Can I get a refund if my flight is cancelled?`
-- Ask to book a specific flight: `Book United flight P0206 at 2026-06-08 09:30:00`
-- Review the returned flight and use `Book` to continue on the Search Flights page before entering payment details
-- Cancel an existing ticket with refund rules based on flight status
-- Display customer-facing answers, citations, structured flight results, and booking handoff button; internal tool calls are still recorded in backend traces
-- P1 Memory prompt: `Remember I prefer United and usually fly SFO to LAX under 500`
-- Later memory-backed search: `Find flights next month`
-- Ask `Show my tickets and trips` to retrieve only the logged-in customer's upcoming, uncancelled trips; historical trips are not presented as active travel
+| Layer | Technology |
+| --- | --- |
+| Web application | Python 3.11, Flask, Jinja, HTML/CSS/JavaScript |
+| Agent service | FastAPI, Pydantic, Uvicorn |
+| Data access | MySQL 8, PyMySQL, parameterized SQL |
+| AI and retrieval | OpenAI-compatible chat/tool API, embedding retrieval, Markdown policy knowledge base |
+| Security | ItsDangerous signed identities, session-bound CSRF, role/tool guards |
+| Testing and load | pytest, Locust, browser responsive smoke tests |
+| Runtime | Docker Compose |
 
-Staff Operations Copilot at `/staff/copilot`:
+## Quick Start
 
-- Ask analytics questions: `Which flights have the worst reviews?`
-- Ask time-scoped sales questions such as `Show me the sales report for this month`, `this year`, `last month`, `last year`, or an exact `YYYY-MM-DD` range
-- Call staff-only analytics tools
-- Display answer, tool calls, and table data
+### Requirements
 
-Staff sales reports use explicit database-backed reporting windows. `This month` and `this year` are month-to-date and year-to-date; `last month` and `last year` mean the previous complete calendar month and calendar year. Both Copilot and the manual Reports page share these boundaries and exclude future-dated transactions.
+- Git
+- Docker Desktop or Docker Engine with Compose v2
+- Optional: an OpenAI-compatible API key for native routing, embeddings, and grounded LLM answers
 
-## P0 Tool Boundary
+### 1. Clone and configure
 
-Customer tools:
+```bash
+git clone https://github.com/keith1117/airline-agentops-platform.git
+cd airline-agentops-platform
+cp .env.example .env
+```
 
-- `search_flights`
-- `get_customer_trips`
-- `get_customer_ticket`
-- `preview_customer_ticket_cancellation`
-- `cancel_customer_ticket`
-- `create_booking_intent`
-- `confirm_booking`
-- `remember_user_preference`
-- `get_user_preferences`
-- `answer_policy_question`
+The default configuration runs without an external model. In `auto` mode, unavailable model capabilities fall back to deterministic routing, keyword retrieval, and extractive policy answers.
 
-Staff tools:
-
-- `get_sales_report`
-- `analyze_reviews`
-- `get_flight_load_factor`
-- `get_route_performance`
-- `answer_policy_question`
-
-The agent cannot execute raw SQL. Database-backed actions must go through registered tools. Customer sessions cannot call staff-only tools.
-
-Customer-facing flight availability excludes cancelled flights. Cancelled inventory remains available to staff workflows for operational review, but it is not shown as bookable inventory in customer search or customer Agent flight results.
-
-`get_customer_trips` uses the same active-trip boundary as the My Flights page: it is scoped to the authenticated customer and returns only future, uncancelled trips.
-
-The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
-
-High-risk actions are intentionally kept out of model execution. The legacy Python booking API remains available for regression compatibility, while production web actions use the persistent queue and explicit human decisions.
-
-## AI Router and Grounded RAG Modes
-
-Default modes:
+To enable the real model path, set these values in `.env`:
 
 ```env
-TOOL_ROUTER_MODE=auto
-AGENT_ROUTER_MODE=auto
-AGENT_RUNTIME_MODE=single_step
-RAG_RETRIEVER_MODE=auto
-POLICY_ANSWER_MODE=auto
-MAX_AGENT_STEPS=4
-RAG_TOP_K=3
-RAG_SIMILARITY_THRESHOLD=0.35
+LLM_API_KEY=your_api_key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+
+EMBEDDING_API_KEY=your_api_key
+EMBEDDING_BASE_URL=https://api.openai.com/v1
+EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-Supported values:
-
-- `TOOL_ROUTER_MODE=auto | native | json | deterministic`
-- `AGENT_ROUTER_MODE=auto | deterministic | llm`
-- `AGENT_RUNTIME_MODE=auto | single_step | bounded_react`
-- `RAG_RETRIEVER_MODE=auto | keyword | embedding`
-- `POLICY_ANSWER_MODE=auto | extractive | llm`
-
-`auto` is the normal demo mode: it uses LLM / embedding capabilities when configured and falls back safely when unavailable. For tool routing, `auto` tries the native OpenAI tool-calling adapter first, then the JSON structured router, then deterministic routing. Forced enhanced modes such as `TOOL_ROUTER_MODE=native` or `llm / embedding / llm` are for verification; missing configuration or API failure should surface as a controlled error instead of silently counting as an enhanced-path success.
-
-Environment compatibility is one-way: `LLM_API_KEY` and `LLM_BASE_URL` take priority. The legacy `OPENAI_API_KEY` and `OPENAI_BASE_URL` are only fallback values when the new variables are empty. If `EMBEDDING_API_KEY` or `EMBEDDING_BASE_URL` are empty, they inherit the final resolved LLM configuration.
-
-Policy questions use grounded RAG. The embedding retriever returns top-k chunks with similarity scores; if the best score is below `RAG_SIMILARITY_THRESHOLD`, the service returns a no-context fallback and does not call the grounded LLM answer generator. Citations are attached by the backend from retrieved chunk metadata, not invented by the model.
-
-## Agent Runtime
-
-The Agent runtime separates model planning from business execution:
-
-1. The router interprets the user request and proposes a tool call.
-2. The backend validates the selected tool against the role-specific registry.
-3. The backend validates arguments and blocks unsafe actions.
-4. Local tools execute database-backed operations with parameterized SQL.
-5. The backend formats transactional and analytics results.
-6. Policy questions use grounded RAG instead of the transactional formatter.
-
-Native OpenAI tool calling is implemented as an adapter for tool selection and argument extraction. It does not let the model execute SQL, issue tickets, confirm bookings, or cancel tickets directly. Those operations remain local backend tools protected by role guards and business validation.
-
-The default runtime is `single_step`, which preserves the stable router-to-tool workflow. `AGENT_RUNTIME_MODE=bounded_react` enables the P3 bounded ReAct flow for selected multi-step requests. `AGENT_RUNTIME_MODE=auto` keeps simple requests on single-step routing while routing recognized multi-step booking-preparation and staff route-review analysis requests into bounded ReAct. In booking-preparation mode, the customer Agent can search flights, observe database-backed results, select the cheapest bookable candidate, and then stop with a `Book` handoff to the Search Flights page. For staff analytics, the copilot combines `get_route_performance` and `analyze_reviews` observations by matching the same departure/arrival route; it does not infer that an unrelated low-rated flight belongs to the strongest-selling route. Review-only questions such as highest-rated route, worst-reviewed route, or highest-rated flight use review analytics only, sort in the requested direction, and omit sales/revenue columns. The actual purchase remains a user-driven web workflow with payment fields.
-
-P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. Booking purchase follows the same high-risk boundary by handing off to the Search Flights page instead of completing inside chat.
-
-P4.3 adds a persistent Human-in-the-loop queue. Booking handoffs and cancellation previews receive durable action IDs, expire after 30 minutes, and record every state transition. Booking checkout is an atomic, idempotent transaction with row locks, last-seat protection, fare and preview validation, and a monotonic ticket allocator. Demo card input is validated but only the literal `MOCK-PAYMENT` token is stored.
-
-P4.4 hardens the service boundary. FastAPI `/api/*` calls require a short-lived signed service identity; customer, staff, and operator roles are scoped to their own principals and airlines. Browser POST forms use session-bound CSRF tokens, the secret is persisted with restrictive permissions, and high-risk tools cannot be invoked through model routing. The legacy booking endpoint returns `410 Gone`; purchases can only finish on the Search Flights checkout page.
-
-Time governance stores and compares timestamps in UTC. The browser detects an IANA timezone and lets a user override it; flight schedules are displayed in both airport-local and traveler-local time. Airport-local date searches and business-timezone reports use DST-aware calendar bounds, including 23- and 25-hour days.
-
-The Agent records ReAct-style trajectories in execution metadata and trace export:
-
-```json
-[
-  {"type": "decision_summary", "content": "Need available bookable flights before preparing a booking handoff."},
-  {"type": "action", "tool": "search_flights", "args": {"departure_airport": "SFO", "arrival_airport": "LAX"}},
-  {"type": "observation", "tool": "search_flights", "content": {"count": 1}},
-  {"type": "decision_summary", "content": "Selected the lowest-price bookable flight and will route the customer to manual checkout."},
-  {"type": "final_answer", "content": "I found a bookable flight. Use Book to continue on the Search Flights page."}
-]
-```
-
-This trajectory format is used for debugging, deterministic eval analysis, and SFT-ready trace export. It is not a claim that real SFT or Agentic RL training has been performed.
-
-## Docker Demo Path
-
-Start the full production-like demo stack with Docker Compose:
+### 2. Start the stack
 
 ```bash
 docker compose up --build
 ```
 
-To explicitly demo the P3 bounded runtime in Docker:
+Compose starts MySQL, seeds the demo inventory, and starts the Agent service, Flask web application, and phpMyAdmin. All exposed services bind to loopback.
+
+### 3. Open the services
+
+| Service | URL |
+| --- | --- |
+| Web application | <http://127.0.0.1:5050> |
+| Agent health | <http://127.0.0.1:8001/health> |
+| phpMyAdmin | <http://127.0.0.1:8080> |
+
+Demo accounts:
+
+| Role | Username | Password |
+| --- | --- | --- |
+| Customer | `testcustomer@nyu.edu` | `1234` |
+| Airline staff | `admin` | `abcd` |
+| phpMyAdmin | `root` | `root` |
+
+Check service state and health:
 
 ```bash
-AGENT_RUNTIME_MODE=bounded_react MAX_AGENT_STEPS=4 docker compose up --build
+docker compose ps
+curl http://127.0.0.1:8001/health
 ```
 
-To demo P3.4 runtime auto-selection:
+Stop the stack without deleting the database volume:
 
 ```bash
-AGENT_RUNTIME_MODE=auto MAX_AGENT_STEPS=4 docker compose up --build
+docker compose down
 ```
 
-Then open the demo endpoints:
+## Configuration
 
-- Flask web app: `http://127.0.0.1:5050`
-- Agent health: `http://127.0.0.1:8001/health`
-- Docker phpMyAdmin: `http://127.0.0.1:8080`
+Use `.env.example` as the source of truth for available settings.
 
-The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, Docker phpMyAdmin for visual database inspection, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the demo flight is available. All containers bind to loopback, use UTC, and share a persistent secret volume. Set `BUSINESS_TIMEZONE` to choose the reporting calendar; set a strong shared `SECRET_KEY` for deployment.
+| Group | Variables | Default behavior |
+| --- | --- | --- |
+| Database | `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DB` | Docker uses the internal MySQL service; the host port is `3307`. |
+| Agent routing | `AGENT_ROUTER_MODE`, `TOOL_ROUTER_MODE` | `auto` tries native tool calling, then JSON routing, then deterministic routing. |
+| Runtime | `AGENT_RUNTIME_MODE`, `MAX_AGENT_STEPS` | `single_step` with a maximum of 4 steps when bounded execution is enabled. |
+| Retrieval | `RAG_RETRIEVER_MODE`, `RAG_TOP_K`, `RAG_SIMILARITY_THRESHOLD` | `auto`, top 3 policy chunks, minimum similarity `0.35`. |
+| Policy answers | `POLICY_ANSWER_MODE` | `auto` uses grounded LLM answers when available and extractive answers as fallback. |
+| Model | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | OpenAI-compatible endpoint; no key is required for fallback operation. |
+| Embeddings | `EMBEDDING_API_KEY`, `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | Inherits the LLM connection when embedding-specific values are empty. |
+| Knowledge base | `RAG_POLICY_PATH`, `RAG_EMBEDDING_CACHE` | Markdown policy source and a local JSON embedding cache. |
+| Observability | `AGENT_TRACE_ENABLED`, `METRICS_LOG_PATH` | Traces enabled; metrics written under `logs/`. |
+| Time | `TZ`, `BUSINESS_TIMEZONE` | Services use UTC; business reporting defaults to UTC. |
+| Service security | `SECRET_KEY` | An empty or development value creates a persistent local random secret shared by the Docker services. |
 
-Docker phpMyAdmin connects directly to the Compose MySQL service. Use `root` / `root` if prompted. This is independent of MAMP phpMyAdmin, so MAMP does not need to be running for the Docker demo path.
-
-Docker Compose runtime has been verified locally with MySQL, the seed service, the FastAPI Agent service, and the Flask web app all running successfully.
-
-Current Docker config test result:
+Supported mode values:
 
 ```text
-3 passed
+AGENT_ROUTER_MODE=auto | deterministic | llm
+TOOL_ROUTER_MODE=auto | native | json | deterministic
+AGENT_RUNTIME_MODE=auto | single_step | bounded_react
+RAG_RETRIEVER_MODE=auto | keyword | embedding
+POLICY_ANSWER_MODE=auto | extractive | llm
 ```
 
-Core Agent API endpoints:
+## Demo Workflows
 
-- `POST /api/agent/customer/chat`
-- `POST /api/agent/staff/chat`
-- `GET /api/agentops/dashboard` (staff/operator identity required)
-- `POST /api/agent/confirm-cancellation` (persistent action ID required)
-- `POST /api/eval/run` (operator identity required)
-- `GET /health`
-- `GET /api/metrics` (staff/operator identity required)
+### Customer booking
 
-Human confirmation pages:
+1. Sign in as the demo customer and open **AI Agent**.
+2. Ask: `Find the cheapest flight from San Francisco to Los Angeles next month and prepare a booking.`
+3. Review the database-backed result and choose **Book**.
+4. Confirm the exact flight on **Search Flights**, enter the checkout fields, and submit the mock purchase.
+5. Review the issued ticket under **My Flights** and the completed action under **Pending Actions**.
 
-- Customer: `/customer/actions`
-- Staff: `/staff/actions`
-- Checkout handoff: `/customer/search?action_id=<id>`
+Checkout accepts a 13–19 digit card number for validation. The number is not persisted; the ticket stores only the literal `MOCK-PAYMENT` token.
 
-## Run Locally
+### Policy question
 
-Install dependencies:
+Ask: `Can I get a refund if my flight is cancelled?` The response includes citations selected by the backend from retrieved policy chunks.
+
+### Cancellation confirmation
+
+1. Ask the Customer Agent to cancel a ticket by ID.
+2. Review the calculated fee and refund preview.
+3. Open **Pending Actions** and explicitly confirm or reject the action.
+
+The preview does not change ticket state. Confirmation revalidates the original preview and commits the cancellation and audit event atomically.
+
+### Staff operations
+
+1. Sign in as the demo staff account and open **AI Copilot**.
+2. Ask: `Which route has strong sales but poor reviews?`
+3. Review the correlated route and review observations.
+4. Open **AgentOps** to inspect runtime mode, tool sequence, latency, fallback status, and bounded trajectory.
+5. Use **Action Queue** to audit customer actions for the staff member's airline; staff cannot confirm a transaction for the customer.
+
+## API and Security Boundaries
+
+| Endpoint | Access | Purpose |
+| --- | --- | --- |
+| `GET /health` | Public local health check | Reports Agent, database, policy index, and clock status. |
+| `POST /api/agent/customer/chat` | Signed customer identity | Customer Agent requests scoped to the authenticated customer. |
+| `POST /api/agent/staff/chat` | Signed staff identity | Staff Copilot requests scoped to the authenticated airline. |
+| `POST /api/agent/confirm-cancellation` | Signed customer identity | Executes a valid persistent cancellation action. |
+| `GET /api/agentops/dashboard` | Signed staff or operator identity | Returns airline-scoped trace and AgentOps aggregates. |
+| `GET /api/metrics` | Signed staff or operator identity | Returns in-memory request, latency, error, role, and tool metrics. |
+| `POST /api/eval/run` | Signed operator identity | Runs an evaluation suite. |
+| `POST /api/agent/confirm-booking` | Retired (`410 Gone`) | Direct API booking is disabled; checkout is required. |
+
+Security and transaction rules:
+
+- Browser POST requests use session-bound CSRF tokens and HTTP-only, SameSite cookies.
+- FastAPI `/api/*` routes require a signed identity that expires after 120 seconds.
+- Principals and airline scopes are checked independently of model output.
+- Tools are classified as `safe_read`, `controlled_write`, or `human_confirmed`.
+- The model cannot execute raw SQL or invoke `human_confirmed` tools through ordinary routing.
+- Booking uses row locks, last-seat protection, fare validation, monotonic ticket allocation, and idempotent action results.
+- Trace views redact customer request and response content from staff while retaining operational metadata.
+- MySQL sessions, service clocks, traces, and audit timestamps use UTC; pages display airport-local and traveler-local IANA timezones.
+
+## Testing and Verified Results
+
+Create a local environment when running tests outside Docker:
 
 ```bash
-cd "/Users/keith1117/Documents/CS-3083 Database/project/part3"
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Seed the minimal P0 demo data:
+Fast deterministic regression without MySQL acceptance tests:
 
 ```bash
-python -m scripts.seed_p0_demo
-```
-
-Start the FastAPI Agent service:
-
-```bash
-uvicorn agent_service.main:app --host 127.0.0.1 --port 8001
-```
-
-Optional: prebuild the policy embedding cache before an enhanced LLM/RAG demo:
-
-```bash
-python -m agent_service.build_policy_index
-```
-
-Start the Flask web app:
-
-```bash
-FLASK_DEBUG=0 FLASK_PORT=5050 python app.py
-```
-
-Open:
-
-- Flask web app: `http://127.0.0.1:5050`
-- Agent health: `http://127.0.0.1:8001/health`
-
-Demo accounts:
-
-- Customer: `testcustomer@nyu.edu` / `1234`
-- Staff: `admin` / `abcd`
-
-## Test Commands
-
-Fast tests without MySQL acceptance:
-
-```bash
+TOOL_ROUTER_MODE=deterministic \
+AGENT_ROUTER_MODE=deterministic \
+RAG_RETRIEVER_MODE=keyword \
+POLICY_ANSWER_MODE=extractive \
 python -m pytest tests -q
 ```
 
-Current local fast result:
-
-```text
-58 passed, 17 skipped
-```
-
-P0 acceptance tests with local MySQL:
+Full regression against the running Docker MySQL service:
 
 ```bash
-RUN_P0_ACCEPTANCE=1 python -m pytest tests -q
+MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 \
+RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 \
+RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 \
+python -m pytest tests -q
 ```
 
-P1 Memory acceptance tests:
-
-```bash
-RUN_P1_MEMORY=1 python -m pytest tests/test_p1_memory.py -q
-```
-
-P1 Basic Eval acceptance:
-
-```bash
-RUN_P1_EVAL=1 python -m pytest tests/test_p1_eval.py -q
-```
-
-Run the eval suite through the Agent API after starting FastAPI:
-
-```bash
-curl -X POST http://127.0.0.1:8001/api/eval/run \
-  -H 'Content-Type: application/json' \
-  -d '{"suite_name":"default"}'
-```
-
-Current P1 Basic Eval result:
-
-```text
-total: 20
-passed: 20
-task_success_rate: 1.0
-tool_call_accuracy: 1.0
-citation_presence_rate: 1.0
-average_steps: 1.1
-failed_cases: []
-```
-
-P1 Trace Export acceptance:
-
-```bash
-RUN_P1_TRACE=1 python -m pytest tests/test_p1_trace_export.py -q
-```
-
-Export SFT-ready trajectory JSONL:
-
-```bash
-python -m agent_service.export_traces
-```
-
-The export writes JSONL records with `user -> assistant reasoning -> tool -> assistant final` messages plus metadata such as session id, role, principal, and tool names.
-
-P1 Core regression tests:
-
-```bash
-RUN_P1_CORE=1 python -m pytest tests/test_p1_core_regressions.py -q
-```
-
-These cover RAG no-context fallback, safe booking idempotency behavior, and ticket cancellation refund rules.
-
-AI-first router and grounded RAG tests:
-
-```bash
-python -m pytest tests/test_ai_config_modes.py tests/test_ai_grounded_rag.py tests/test_ai_router_policy_path.py -q
-```
-
-Complete P0/P1 acceptance suite:
-
-```bash
-RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 \
-  python -m pytest tests -q
-```
-
-Current verified Docker MySQL result:
-
-```text
-75 passed
-```
-
-P3 bounded runtime tests:
+Focused bounded-runtime tests:
 
 ```bash
 python -m pytest tests/test_p3_bounded_react.py -q
 ```
 
-Current P3 result:
-
-```text
-18 passed
-```
-
-Agent QA Harness:
+Deterministic Agent QA:
 
 ```bash
 python -m agent_service.run_agent_qa \
@@ -376,276 +256,77 @@ python -m agent_service.run_agent_qa \
   --tool-router-mode deterministic \
   --runtime-mode bounded_react \
   --rag-retriever-mode keyword \
-  --policy-answer-mode extractive
+  --policy-answer-mode extractive \
+  --fail-on-failures
 ```
 
-The QA harness generates reproducible customer and staff prompt variants from a seeded template pool, avoids recently generated prompts when `--avoid-recent` is passed, checks expected tools / forbidden tools / citations / pending confirmations / request paths, and writes JSONL reports to `logs/agent_qa_runs/`.
-
-To verify the real native OpenAI tool-calling path when API credentials are configured:
+Authenticated 20-user Locust smoke from the Agent container:
 
 ```bash
-python -m agent_service.run_agent_qa \
-  --seed 42 \
-  --count 12 \
-  --tool-router-mode native \
-  --runtime-mode bounded_react \
-  --avoid-recent
+docker compose exec -T agent python -m locust \
+  -f load_tests/locustfile.py \
+  --headless \
+  --host http://127.0.0.1:8001 \
+  --users 20 \
+  --spawn-rate 5 \
+  --run-time 1m \
+  --only-summary
 ```
 
-Use `--fail-on-failures` when running the QA harness as a CI-style regression gate. The current deterministic smoke result against Docker MySQL is:
+Latest verified results:
 
-```text
-10 passed, 0 failed
-```
+| Area | Result |
+| --- | --- |
+| Deterministic regression | `110 passed, 24 skipped` |
+| Docker MySQL full regression | `134 passed` |
+| P3 bounded runtime | `23 passed` |
+| Basic Agent eval | `23/23 passed`; tool accuracy and citation presence `1.0` |
+| Deterministic QA smoke | `10 passed, 0 failed` |
+| Live model smoke | Native `search_flights` passed; 2 returned flights matched database rows; embedding retrieval, grounded LLM answer, and policy citations passed. |
+| External API failure | Deterministic router, keyword retrieval, extractive answer, fallback reasons, and citations passed. |
+| Responsive UI | Pending Actions, checkout, and AgentOps passed at `1440x900` and `390x844` without page-level horizontal overflow. |
 
-P0.5 UI smoke result:
+Locust result:
 
-```text
-5 passed
-```
-
-P1 Docker config tests:
-
-```bash
-python -m pytest tests/test_p1_docker_config.py -q
-```
-
-P2 Observability smoke:
-
-```bash
-curl http://127.0.0.1:8001/api/metrics
-```
-
-Metrics include:
-
-- `total_requests`
-- `error_count`
-- `avg_latency_ms`
-- per-endpoint request count, average latency, error count, and tool-call count
-- per-role request count, error count, and tool-call count
-
-The Agent service also writes JSONL metrics events to `logs/agent_metrics.jsonl` by default. This file is ignored by Git because it is runtime output.
-
-Current P2 observability test result:
-
-```text
-2 passed
-```
-
-P2 Locust smoke load test:
-
-```bash
-bash scripts/run_locust_smoke.sh
-```
-
-Defaults:
-
-- target: `http://127.0.0.1:8001`
-- users: `20`
-- spawn rate: `5`
-- run time: `1m`
-- CSV output prefix: `logs/locust_smoke`
-
-Override example:
-
-```bash
-LOCUST_USERS=50 LOCUST_SPAWN_RATE=10 LOCUST_RUN_TIME=2m bash scripts/run_locust_smoke.sh
-```
-
-The Locust profile covers:
-
-- customer natural-language flight search
-- customer RAG policy QA
-- staff review analytics
-- staff sales reporting
-- metrics endpoint polling
-
-After a run, use Locust CSV output plus `http://127.0.0.1:8001/api/metrics` to report request count, error rate, and latency behavior.
-
-Current local smoke result against the Agent service:
-
-```text
-users: 20
-runtime: 1m
-requests: 2813
-failures: 0
-aggregated avg latency: 16 ms
-aggregated p95 latency: 33 ms
-throughput: 47.17 requests/s
-```
-
-The current authenticated run was executed inside the Agent container so Locust shared the service identity key used by the protected customer and staff endpoints. A host-side run must provide the same `SECRET_KEY` configuration to both the web service and the load-test client.
-
-P2 Synthetic Data Generator:
-
-```bash
-python -m scripts.generate_synthetic_data
-```
-
-Default output:
-
-```text
-sql/synthetic_data.sql
-```
-
-Default generated scale:
-
-- 24 airports
-- 10,000 flights
-- 2,000 customers
-- 50,000 tickets
-- 5,000 reviews
-
-Small local smoke example:
-
-```bash
-python -m scripts.generate_synthetic_data \
-  --airports 5 \
-  --flights 12 \
-  --customers 8 \
-  --tickets 20 \
-  --reviews 6 \
-  --output /tmp/part3_synthetic_smoke.sql
-```
-
-Apply to the configured MySQL database only when you intentionally want to load the generated rows:
-
-```bash
-python -m scripts.generate_synthetic_data --apply
-```
-
-Generated SQL uses the synthetic airline `SyntheticAir`, `SYN`-prefixed airplane/flight IDs, `synthetic...@demo.local` customers, and `INSERT IGNORE` so existing P0 demo rows are preserved.
-
-Curated professional demo seed for the main Docker MySQL database:
-
-```bash
-MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 MYSQL_USER=root MYSQL_PASSWORD=root MYSQL_DB="Airline Ticket Reservation System" \
-python -m scripts.seed_professional_demo --apply
-```
-
-This smaller seed is intended for interview demos, not load testing. It adds 12 airports, 60 United flights distributed monthly from 2026-06 through 2027-12, 20 demo customers, 90 tickets, and 45 reviews using high ticket IDs and `INSERT IGNORE`, so the stable P0 booking flow remains available. Use `--refresh` when you intentionally want to replace the existing curated rows in Docker MySQL. The large 10k-flight generator remains separate for benchmark experiments.
-
-## Benchmark / Results
-
-Current local verification summary:
-
-| Area | Command / Source | Result |
-| --- | --- | --- |
-| Local fast regression suite | `TOOL_ROUTER_MODE=deterministic AGENT_ROUTER_MODE=deterministic RAG_RETRIEVER_MODE=keyword POLICY_ANSWER_MODE=extractive python -m pytest tests -q` | `110 passed, 24 skipped` |
-| Docker MySQL full regression suite | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 python -m pytest tests -q` | `134 passed` |
-| P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `23 passed` |
-| Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
-| Live OpenAI Agent smoke | Forced native routing, embedding retrieval, and grounded LLM policy answer | Native `search_flights` call passed; 2 returned flights matched database rows; embedding + LLM modes passed; all citations resolved to policy chunks |
-| External API failure fallback | Auto modes with intentionally unreachable model and embedding endpoints | Deterministic router, keyword retrieval, extractive answer, fallback reasons, and citations passed |
-| Responsive UI smoke | Pending Actions, checkout, and AgentOps at `1440x900` and `390x844` | No page-level horizontal overflow; mobile data tables use contained horizontal scrolling; form and filter controls remain aligned |
-| Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
-| Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
-| Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
-| Trace export | `python -m agent_service.export_traces` | SFT-ready JSONL trajectory format |
-| Docker Compose config | `docker compose config` | MySQL, seed, FastAPI Agent, Flask web app configured |
-
-Locust smoke benchmark:
-
-| Scenario | Requests | Failures | Avg Latency | P95 Latency |
+| Scenario | Requests | Failures | Average | P95 |
 | --- | ---: | ---: | ---: | ---: |
 | Customer flight search | 563 | 0 | 26 ms | 45 ms |
 | Customer policy QA | 563 | 0 | 12 ms | 19 ms |
 | Staff review analytics | 563 | 0 | 21 ms | 33 ms |
 | Staff sales report | 562 | 0 | 18 ms | 28 ms |
 | Metrics polling | 562 | 0 | 1 ms | 2 ms |
-| Aggregated | 2813 | 0 | 16 ms | 33 ms |
+| **Total** | **2813** | **0** | **16 ms** | **33 ms** |
 
-Agent metrics after the Locust smoke:
+Observed throughput was `47.17 requests/s`. This is a local smoke benchmark for regression and demonstration, not a production capacity claim or service-level objective.
 
-| Metric | Value |
-| --- | ---: |
-| Total Agent requests observed | 2813 |
-| Error count | 0 |
-| Average service latency | 14.39 ms |
-| Customer chat requests | 1126 |
-| Customer tool calls | 1126 |
-| Staff chat requests | 1125 |
-| Staff tool calls | 1125 |
-| Metrics requests | 562 |
+## Repository Layout
 
-Synthetic data generation benchmark:
+```text
+.
+├── agent_service/       FastAPI Agent runtime, tools, RAG, actions, security, and metrics
+├── templates/           Customer and staff Flask views
+├── static/              Shared styles and browser timezone handling
+├── tests/               Unit, regression, acceptance, security, and timezone tests
+├── eval/                Deterministic Agent evaluation suites
+├── load_tests/          Locust workload
+├── scripts/             Seed, synthetic-data, QA, and load helpers
+├── sql/                 Core schema, Agent migration, and demo data
+├── docs/                Policy and implementation records
+├── app.py               Flask application
+└── docker-compose.yml   Local multi-service stack
+```
 
-| Generator Mode | Scale | Result |
-| --- | --- | --- |
-| Default local generation | 24 airports, 10k flights, 2k customers, 50k tickets, 5k reviews | Writes `sql/synthetic_data.sql` without modifying MySQL |
-| Smoke generation | 5 airports, 12 flights, 8 customers, 20 tickets, 6 reviews | SQL generated successfully |
-| Integrity tests | Parent/child foreign-key consistency and SQL order | `2 passed` |
+Documentation:
 
-These are local development results on a small demo stack. They are useful for portfolio evidence and regression tracking, not claims of production-scale throughput.
+- [Airline policy knowledge base](docs/policies/airline_policy.md)
+- [P0 project progress record](docs/project_progress_report_p0.md)
+- [P3/P4 bounded AgentOps implementation record](docs/P3-P4.md)
 
-## Advanced Eval / Agentic RL Design
+## Limitations
 
-Real Agentic RL and model fine-tuning are intentionally out of scope for this portfolio MVP. The project instead prepares the engineering inputs that such optimization would need: deterministic eval tasks, trace logging, tool-call metadata, citations, latency metrics, and failed-case reporting.
-
-P4 governance is implemented: UTC is the storage and comparison standard, browser IANA timezone detection is persisted with an override, airport-local schedule semantics are explicit, and reporting windows are DST-aware and anchored to `BUSINESS_TIMEZONE`.
-
-Current implemented evaluation:
-
-- deterministic JSONL eval suite
-- expected tool checks
-- expected answer keyword checks
-- forbidden tool checks
-- citation presence checks
-- average-step reporting
-- failed-case reporting
-
-Future advanced eval design:
-
-| Capability | Design |
-| --- | --- |
-| Citation correctness | Add tests that verify retrieved policy section IDs match expected evidence, not only citation presence. |
-| Tool argument accuracy | Compare generated tool arguments against expected airport, airline, date, budget, and role constraints. |
-| Multi-step task success | Add tasks requiring memory lookup, search, booking-page handoff, and confirmation safety checks. |
-| Regression tracking | Store eval summaries per run and compare task success, tool accuracy, citation correctness, latency, and error rate over time. |
-| Failure clustering | Group failed traces by failure mode: wrong tool, missing citation, unsafe action, bad arguments, timeout, or no-context hallucination. |
-
-Future Agentic RL design:
-
-| Reward Signal | Purpose |
-| --- | --- |
-| Task completion | Reward final answers that satisfy the target task. |
-| Correct tool selection | Reward choosing the expected tool for the user intent. |
-| Tool argument correctness | Reward valid route/date/customer/airline parameters. |
-| Safety and permission compliance | Penalize staff/customer role violations and any attempt to complete booking inside chat. |
-| Citation correctness | Reward policy answers grounded in the right knowledge chunks. |
-| Efficiency | Penalize unnecessary steps, retries, latency, and avoidable tool calls. |
-| Controlled failure | Reward saying no or returning no-context fallback when evidence is missing. |
-
-Optimization loop:
-
-1. Run deterministic eval and Locust smoke tests.
-2. Export traces and failed cases.
-3. Label failure modes.
-4. Improve prompts, tool descriptions, argument parsing, and RAG chunks.
-5. Re-run eval and compare metrics.
-6. Use high-quality successful traces as SFT candidates only after manual review.
-
-Boundary: this project does not claim real SFT or Agentic RL training. It demonstrates the logging, eval, and reward-signal design needed to support those future steps.
-
-P0 acceptance covers:
-
-- Customer flight search calls `search_flights`
-- RAG policy answer returns citations
-- Customer Agent booking requests return a bookable flight handoff instead of issuing tickets in chat
-- Search Flights purchase flow writes a mock ticket only after the user manually reviews the flight and submits payment details
-- Staff copilot calls staff analytics tools
-- Customer cannot call staff-only tools
-- Staff chat does not execute customer booking tools
-- Identity and out-of-scope prompts do not trigger unrelated tools
-- Customer flight availability excludes cancelled flights
-
-## Boundaries
-
-- Demo inventory is synthetic and seeded locally.
-- Curated professional demo data is available as a committed SQL seed for the main Docker MySQL demo database.
-- Large synthetic data is generated locally and is not committed to Git.
-- Payment is mocked with a non-real payment token.
-- This is a production-like MVP, not a real airline commerce platform.
-- Native OpenAI tool calling is used only as a tool-selection adapter. Business operations are still executed by local backend tools.
-- The project uses a custom lightweight Agent runtime and local JSON embedding cache. It does not use LangChain, LangGraph, Chroma, Pinecone, or another vector database.
-- Real SFT and Agentic RL training are not implemented. The project includes eval, trace export, and reward-signal design for future optimization.
+- Inventory, customers, tickets, and reviews are synthetic or locally seeded.
+- Payment is mocked; no card number is stored and no payment processor is contacted.
+- The project does not connect to airline distribution, reservation, or ticketing systems.
+- The embedding index is a lightweight local JSON cache rather than a managed vector database.
+- The repository includes evaluation and SFT-ready trace export, but no model fine-tuning, SFT training, or Agentic RL training has been performed.
+- The included Docker configuration is a local demonstration stack, not a production deployment specification.
