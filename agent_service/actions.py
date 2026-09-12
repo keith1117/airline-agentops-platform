@@ -241,16 +241,16 @@ def purchase_action(action_id, customer_email, payment):
             norm = lambda value: " ".join(str(value or "").split()).lower()
             if not customer or norm(payment.get("name_on_card")) != norm(customer["name"]):
                 raise ActionError("The name on the card must match the account name.")
-            number = payment.get("card_number", "")
+            number = str(payment.get("card_number") or "")
             if not number.isascii() or not number.isdigit() or not 13 <= len(number) <= 19:
-                raise ActionError("Enter a demo card number with 13 to 19 digits.")
+                raise ActionError("Invalid card number.")
             try:
                 expiry = date.fromisoformat(payment.get("expiration_date", ""))
             except ValueError:
                 raise ActionError("Enter a valid expiration date.") from None
             cur.execute("SELECT CURRENT_DATE AS today")
             if expiry < cur.fetchone()["today"] or payment.get("card_type") not in {"Credit", "Debit"}:
-                raise ActionError("Use an unexpired demo Credit or Debit card.")
+                raise ActionError("Use an unexpired Credit or Debit card.")
             cur.execute("SELECT next_id FROM ticket_id_allocator WHERE id=1 FOR UPDATE")
             allocated = cur.fetchone()["next_id"]
             cur.execute("SELECT COALESCE(MAX(ticket_id),0)+1 AS next_id FROM "

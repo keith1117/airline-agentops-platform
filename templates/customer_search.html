@@ -5,7 +5,7 @@
   <div>
     <p class="page-kicker">Customer workspace</p>
     <h1 class="page-title">Search Flights</h1>
-    <p class="muted">Search synthetic inventory and purchase through the existing mock booking flow.</p>
+    <p class="muted">Search available flights and complete checkout.</p>
   </div>
   {% if session.get('role') == 'customer' %}
     <a class="btn" href="{{ url_for('customer_agent') }}">Ask AI Agent</a>
@@ -54,13 +54,12 @@
             <form method="POST" action="{{ url_for('customer_purchase') }}" class="form-grid">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="action_id" value="{{ checkout.id }}">
-              <p class="muted">Demo payment only. Use 4111111111111111; the number is not stored.</p>
               <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
               <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
               <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
               <input name="name_on_card" placeholder="Name on Card" required>
               <select name="card_type"><option>Credit</option><option>Debit</option></select>
-              <input name="card_number" placeholder="Card Number" required>
+              <input name="card_number" placeholder="Card Number" inputmode="numeric" autocomplete="cc-number" required>
               <input type="date" name="expiration_date" required>
               <button>Buy</button>
             </form>

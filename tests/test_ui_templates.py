@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from flask import session
+
 import app as web_app
 from app import app, present_agent_messages
 
@@ -50,7 +52,15 @@ def test_customer_templates_render():
     home_html = render_template("customer_home.html", name="Test User", flights=[flight])
     assert "data-table" in home_html
     assert "Cancel Ticket" in home_html
-    assert "Search Flights" in render_template("customer_search.html", rows=[flight], dep="SFO", arr="LAX", date="")
+    with app.test_request_context("/"):
+        session["role"] = "customer"
+        search_html = app.jinja_env.get_template("customer_search.html").render(
+            rows=[flight], dep="SFO", arr="LAX", date="", checkout={"id": "checkout-1"}
+        )
+    assert "Search Flights" in search_html
+    assert "Demo payment" not in search_html
+    assert "4111111111111111" not in search_html
+    assert 'inputmode="numeric"' in search_html
     assert "Great demo flight" in render_template("customer_reviews.html", rows=[review])
 
 

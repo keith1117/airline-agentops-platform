@@ -144,5 +144,7 @@ def test_invalid_payment_leaves_no_ticket_and_can_retry(inventory):
     action_id=_booking(email,flight)
     with pytest.raises(actions.ActionError,match='match'):
         actions.purchase_action(action_id,email,{**PAYMENT,'name_on_card':'Another Name'})
+    with pytest.raises(actions.ActionError,match=r'^Invalid card number\.$'):
+        actions.purchase_action(action_id,email,{**PAYMENT,'card_number':'123456789012'})
     assert actions.list_actions(customer_email=email)[0]['status'] == 'CHECKOUT_STARTED'
     assert actions.purchase_action(action_id,email,PAYMENT)['ticket_id']
