@@ -465,13 +465,16 @@ After a run, use Locust CSV output plus `http://127.0.0.1:8001/api/metrics` to r
 Current local smoke result against the Agent service:
 
 ```text
-users: 2
-runtime: 10s
-requests: 55
+users: 20
+runtime: 1m
+requests: 2813
 failures: 0
-aggregated avg latency: 14 ms
-aggregated p95 latency: 38 ms
+aggregated avg latency: 16 ms
+aggregated p95 latency: 33 ms
+throughput: 47.17 requests/s
 ```
+
+The current authenticated run was executed inside the Agent container so Locust shared the service identity key used by the protected customer and staff endpoints. A host-side run must provide the same `SECRET_KEY` configuration to both the web service and the load-test client.
 
 P2 Synthetic Data Generator:
 
@@ -542,22 +545,25 @@ Locust smoke benchmark:
 
 | Scenario | Requests | Failures | Avg Latency | P95 Latency |
 | --- | ---: | ---: | ---: | ---: |
-| Customer flight search | 11 | 0 | 32 ms | 52 ms |
-| Customer policy QA | 11 | 0 | 13 ms | 16 ms |
-| Staff review analytics | 11 | 0 | 14 ms | 16 ms |
-| Staff sales report | 11 | 0 | 11 ms | 14 ms |
-| Metrics polling | 11 | 0 | 2 ms | 3 ms |
-| Aggregated | 55 | 0 | 14 ms | 38 ms |
+| Customer flight search | 563 | 0 | 26 ms | 45 ms |
+| Customer policy QA | 563 | 0 | 12 ms | 19 ms |
+| Staff review analytics | 563 | 0 | 21 ms | 33 ms |
+| Staff sales report | 562 | 0 | 18 ms | 28 ms |
+| Metrics polling | 562 | 0 | 1 ms | 2 ms |
+| Aggregated | 2813 | 0 | 16 ms | 33 ms |
 
 Agent metrics after the Locust smoke:
 
 | Metric | Value |
 | --- | ---: |
-| Total Agent requests observed | 58 |
+| Total Agent requests observed | 2813 |
 | Error count | 0 |
-| Average service latency | 12.14 ms |
-| Customer tool calls | 24 |
-| Staff tool calls | 22 |
+| Average service latency | 14.39 ms |
+| Customer chat requests | 1126 |
+| Customer tool calls | 1126 |
+| Staff chat requests | 1125 |
+| Staff tool calls | 1125 |
+| Metrics requests | 562 |
 
 Synthetic data generation benchmark:
 
