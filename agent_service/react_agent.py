@@ -989,6 +989,7 @@ class ReActAgent:
             "arrival_airport": flight.get("arrival_airport"),
             "departure_date_time": departure_date_time,
             "departure_date": departure_date_time[:10] if departure_date_time else "",
+            "base_price": flight.get("base_price"),
         }
 
     def _create_pending_booking(

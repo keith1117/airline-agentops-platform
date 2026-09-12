@@ -23,7 +23,8 @@ class ConfirmBookingRequest(BaseModel):
 
 
 class ConfirmCancellationRequest(BaseModel):
-    ticket_id: int
+    action_id: str
+    ticket_id: Optional[int] = None
     customer_email: str
 
 

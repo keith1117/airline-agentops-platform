@@ -47,7 +47,7 @@
           </div>
         {% endif %}
         {% if m.meta.pending_booking_search %}
-          <form method="get" action="{{ url_for('customer_search') }}" class="inline-form confirm-panel">
+          <form method="post" action="{{ url_for('customer_action_decide', action_id=m.meta.pending_booking_search.action_id or 'missing', decision='checkout') }}" class="inline-form confirm-panel">
             <input type="hidden" name="depart" value="{{ m.meta.pending_booking_search.departure_airport }}">
             <input type="hidden" name="arrive" value="{{ m.meta.pending_booking_search.arrival_airport }}">
             <input type="hidden" name="date" value="{{ m.meta.pending_booking_search.departure_date }}">
@@ -61,7 +61,7 @@
         {% endif %}
         {% if m.meta.pending_cancellation %}
           <form method="post" action="{{ url_for('customer_agent_confirm_cancellation') }}" class="inline-form confirm-panel">
-            <input type="hidden" name="ticket_id" value="{{ m.meta.pending_cancellation.ticket_id }}">
+            <input type="hidden" name="action_id" value="{{ m.meta.pending_cancellation.action_id }}">
             <div>
               <strong>Cancellation confirmation required</strong>
               <span>Estimated refund: ${{ "%.2f"|format(m.meta.pending_cancellation.refund_amount) }}. This action will cancel the ticket.</span>

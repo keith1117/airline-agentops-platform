@@ -194,82 +194,16 @@ def test_customer_agent_does_not_show_book_button_for_multi_flight_result_withou
     assert "<button type=\"submit\">Book</button>" not in customer
 
 
-class _PurchaseCursor:
-    def __init__(self):
-        self.results = []
-        self.executed = []
-        self.inserted_ticket_id = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def execute(self, sql, args=()):
-        self.executed.append((" ".join(sql.split()), args))
-        normalized = " ".join(sql.split())
-        if "SELECT status, departure_date_time FROM Flight" in normalized:
-            self.results.append({"status": "ON_TIME", "departure_date_time": datetime(2027, 4, 15, 8, 0, 0)})
-        elif "SELECT NOW() AS now_ts" in normalized:
-            self.results.append({"now_ts": datetime(2026, 8, 12, 0, 0, 0)})
-        elif "SELECT name FROM Customer" in normalized:
-            self.results.append({"name": "Jon Snow"})
-        elif "FROM ( SELECT ticket_ID AS ticket_id FROM Ticket UNION SELECT ticket_id FROM ticket_cancellations )" in normalized:
-            self.results.append({"next_id": 910067})
-        elif "INSERT INTO Ticket" in normalized:
-            self.inserted_ticket_id = args[0]
-        elif "WHERE t.customer_email=%s AND f.departure_date_time >= NOW() AND c.id IS NULL AND t.ticket_ID=%s" in normalized:
-            self.results.append({"ticket_ID": args[1]})
-
-    def fetchone(self):
-        return self.results.pop(0) if self.results else None
-
-
-class _PurchaseConnection:
-    def __init__(self):
-        self.cursor_instance = _PurchaseCursor()
-        self.committed = False
-        self.rolled_back = False
-
-    def cursor(self):
-        return self.cursor_instance
-
-    def commit(self):
-        self.committed = True
-
-    def rollback(self):
-        self.rolled_back = True
-
-
-def test_customer_purchase_uses_non_reused_ticket_id_and_verifies_my_flights_visibility(monkeypatch):
-    connection = _PurchaseConnection()
-    monkeypatch.setattr(web_app, "conn", connection)
-    monkeypatch.setattr(web_app, "ensure_agent_schema", lambda **kwargs: None)
-
+def test_customer_purchase_uses_session_owner_and_persistent_action(monkeypatch):
+    captured = {}
+    def purchase(action_id, email, payment):
+        captured.update(action_id=action_id, email=email)
+        return {"ticket_id": 910067, "message": "Ticket purchased (#910067)"}
+    monkeypatch.setattr(web_app, "purchase_action", purchase)
     client = app.test_client()
     with client.session_transaction() as session:
         session.update({"role": "customer", "email": "jon@example.com", "display": "Jon Snow"})
-
-    response = client.post(
-        "/customer/purchase",
-        data={
-            "airline_name": "United",
-            "flight_number": "SYN00048",
-            "departure_date_time": "2027-04-15 08:00:00",
-            "name_on_card": "Jon Snow",
-            "card_type": "Credit",
-            "card_number": "4111111111111111",
-            "expiration_date": "2028-01-01",
-        },
-        follow_redirects=False,
-    )
-
-    next_id_sql = [sql for sql, _ in connection.cursor_instance.executed if "UNION SELECT ticket_id" in sql]
-    visibility_sql = [sql for sql, _ in connection.cursor_instance.executed if "AND t.ticket_ID=%s" in sql]
+    response = client.post("/customer/purchase", data={"action_id": "action-1", "customer_email": "other@example.com"})
     assert response.status_code == 302
-    assert next_id_sql
-    assert visibility_sql
-    assert connection.cursor_instance.inserted_ticket_id == 910067
-    assert connection.committed is True
-    assert connection.rolled_back is False
+    assert response.location.endswith("/customer")
+    assert captured == {"action_id": "action-1", "email": "jon@example.com"}

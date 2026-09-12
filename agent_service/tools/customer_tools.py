@@ -271,8 +271,8 @@ def preview_customer_ticket_cancellation(customer_email: str, ticket_id: int) ->
         conn.close()
 
 
-def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any]:
-    conn = get_conn()
+def cancel_customer_ticket(customer_email: str, ticket_id: int, *, connection=None, expected_preview=None) -> Dict[str, Any]:
+    conn = connection or get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -280,7 +280,7 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any
                 SELECT *
                 FROM ticket_cancellations
                 WHERE customer_email=%s AND ticket_id=%s
-                LIMIT 1
+                LIMIT 1 FOR UPDATE
                 """,
                 (customer_email, ticket_id),
             )
@@ -299,7 +299,7 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any
                  AND t.flight_number=f.flight_number
                  AND t.departure_date_time=f.departure_date_time
                 WHERE t.customer_email=%s AND t.ticket_ID=%s
-                LIMIT 1
+                LIMIT 1 FOR UPDATE
                 """,
                 (customer_email, ticket_id),
             )
@@ -311,6 +311,12 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any
 
             base_price = Decimal(str(ticket["base_price"]))
             cancellation_fee, refund_amount, policy_code = _cancellation_terms(ticket["status"], base_price)
+            if expected_preview and (
+                expected_preview.get("flight_status") != ticket["status"]
+                or float(expected_preview.get("refund_amount", -1)) != float(refund_amount)
+                or str(expected_preview.get("departure_date_time")) != ticket["departure_date_time"].isoformat(sep=" ")
+            ):
+                return {"error": "Cancellation terms changed. Request a new preview before confirming."}
             cur.execute(
                 """
                 INSERT INTO ticket_cancellations(
@@ -332,7 +338,8 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any
                     policy_code,
                 ),
             )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return {
             "cancelled": True,
             "already_cancelled": False,
@@ -351,10 +358,12 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int) -> Dict[str, Any
             "message": f"Ticket {ticket_id} was cancelled.",
         }
     except Exception:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def create_booking_intent(

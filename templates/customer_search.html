@@ -49,7 +49,10 @@
           <td><span class="status-chip">{{ f.status }}</span></td>
           {% if session.get('role')=='customer' %}
           <td>
+            {% if checkout %}
             <form method="POST" action="{{ url_for('customer_purchase') }}" class="form-grid">
+              <input type="hidden" name="action_id" value="{{ checkout.id }}">
+              <p class="muted">Demo payment only. Use 4111111111111111; the number is not stored.</p>
               <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
               <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
               <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
@@ -59,6 +62,14 @@
               <input type="date" name="expiration_date" required>
               <button>Buy</button>
             </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('customer_checkout_start') }}">
+              <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
+              <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
+              <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
+              <button>Review &amp; Buy</button>
+            </form>
+            {% endif %}
           </td>
           {% endif %}
         </tr>

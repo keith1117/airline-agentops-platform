@@ -5,6 +5,7 @@ from fastapi import Request
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .actions import record_handoffs, decide_action
 from .config import settings
 from .agentops import load_agentops_dashboard
 from .db import ensure_agent_schema, get_conn
@@ -103,6 +104,7 @@ def get_agentops_dashboard(
 @app.post("/api/agent/customer/chat")
 def customer_chat(req: CustomerChatRequest):
     result = agent.customer_chat(req.session_id, req.customer_email, req.message)
+    record_handoffs(result, req.customer_email, req.session_id)
     return _with_tool_count(result)
 
 
@@ -119,7 +121,7 @@ def confirm_booking(req: ConfirmBookingRequest):
 
 @app.post("/api/agent/confirm-cancellation")
 def confirm_cancellation(req: ConfirmCancellationRequest):
-    return agent.confirm_cancellation(req.customer_email, req.ticket_id)
+    return decide_action(req.action_id, req.customer_email, "confirm")
 
 
 @app.post("/api/eval/run")

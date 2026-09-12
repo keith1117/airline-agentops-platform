@@ -18,11 +18,13 @@
           <a href="{{ url_for('customer_agent') }}">AI Agent</a>
           <a href="{{ url_for('customer_search') }}">Search</a>
           <a href="{{ url_for('customer_reviews') }}">My Reviews</a>
+          <a href="{{ url_for('customer_actions') }}">Pending Actions</a>
           <a class="nav-logout" href="{{ url_for('logout') }}">Logout</a>
         {% elif session.get('role') == 'staff' %}
           <a href="{{ url_for('staff_home') }}">Staff</a>
           <a href="{{ url_for('staff_copilot') }}">AI Copilot</a>
           <a href="{{ url_for('staff_agentops') }}">AgentOps</a>
+          <a href="{{ url_for('staff_actions') }}">Action Queue</a>
           <a href="{{ url_for('staff_create_flight') }}">Create Flight</a>
           <a href="{{ url_for('staff_change_status') }}">Change Status</a>
           <a href="{{ url_for('staff_add_airplane') }}">Add Airplane</a>

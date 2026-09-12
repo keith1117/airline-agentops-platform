@@ -260,7 +260,7 @@ def test_bounded_react_month_request_filters_before_selecting_cheapest(monkeypat
     resp = agent.customer_chat(
         "bounded-month",
         "testcustomer@nyu.edu",
-        "Find the cheapest United flight from JFK to ORD on August and prepare a booking.",
+        "Find the cheapest United flight from JFK to ORD in August 2026 and prepare a booking.",
     )
 
     assert [name for name, _ in calls] == ["search_flights"]

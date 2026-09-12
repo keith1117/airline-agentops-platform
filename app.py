@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 from typing import Any, Dict, Optional, Tuple, List
 from agent_service.db import ensure_agent_schema
 from agent_service.reporting import resolve_sales_window
-from agent_service.tools.customer_tools import cancel_customer_ticket
+from agent_service.actions import (ActionError, create_action, create_cancellation, list_actions,
+                                   decide_action, checkout_action, purchase_action)
 
 load_dotenv()
 
@@ -528,15 +529,57 @@ def customer_cancel_ticket():
     if not ticket_id_raw.isdigit():
         flash("Choose a valid ticket to cancel.")
         return redirect(url_for("customer_home"))
-    result = cancel_customer_ticket(session["email"], int(ticket_id_raw))
-    if "error" in result:
-        flash(result["error"])
-    else:
-        flash(
-            f"Ticket #{result['ticket_id']} cancelled. "
-            f"Cancellation fee ${result['cancellation_fee']:.2f}; estimated refund ${result['refund_amount']:.2f}."
-        )
-    return redirect(url_for("customer_home"))
+    try:
+        create_cancellation(session["email"], int(ticket_id_raw))
+        flash("Review the cancellation fee and refund, then confirm or reject the action.")
+    except ActionError as exc:
+        flash(str(exc))
+    return redirect(url_for("customer_actions"))
+
+
+@app.get("/customer/actions")
+def customer_actions():
+    if not as_customer():
+        return redirect(url_for("login"))
+    return render_template("actions.html", actions=list_actions(customer_email=session["email"], status=request.args.get("status", "")), staff=False)
+
+
+@app.get("/staff/actions")
+def staff_actions():
+    if not as_staff():
+        return redirect(url_for("login"))
+    return render_template("actions.html", actions=list_actions(airline_name=session["airline"], status=request.args.get("status", "")), staff=True)
+
+
+@app.post("/customer/actions/<action_id>/<decision>")
+def customer_action_decide(action_id, decision):
+    if not as_customer():
+        return redirect(url_for("login"))
+    try:
+        result = decide_action(action_id, session["email"], decision)
+        if decision == "checkout":
+            return redirect(url_for("customer_search", action_id=action_id))
+        flash(result.get("error") or result.get("message", "Action completed."))
+    except ActionError as exc:
+        flash(str(exc))
+    return redirect(url_for("customer_actions"))
+
+
+@app.post("/customer/checkout/start")
+def customer_checkout_start():
+    if not as_customer():
+        return redirect(url_for("login"))
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM Flight WHERE airline_name=%s AND flight_number=%s AND departure_date_time=%s "
+                    "AND status!='CANCELLED' AND departure_date_time>CURRENT_TIMESTAMP",
+                    (request.form.get("airline_name"), request.form.get("flight_number"), request.form.get("departure_date_time")))
+        flight = cur.fetchone()
+    if not flight:
+        flash("Flight is no longer available.")
+        return redirect(url_for("customer_search"))
+    action_id = create_action(session["email"], "BOOKING_HANDOFF", flight)
+    decide_action(action_id, session["email"], "checkout")
+    return redirect(url_for("customer_search", action_id=action_id))
 
 @app.route("/customer/agent", methods=["GET", "POST"])
 def customer_agent():
@@ -571,46 +614,30 @@ def customer_agent():
 def customer_agent_confirm():
     if not as_customer():
         return redirect(url_for("login"))
-    chat_key = "customer_agent_messages"
-    booking_intent_id = request.form.get("booking_intent_id")
-    idempotency_key = request.form.get("idempotency_key")
-    result = agent_post(
-        "/api/agent/confirm-booking",
-        {
-            "booking_intent_id": int(booking_intent_id),
-            "customer_email": session["email"],
-            "idempotency_key": idempotency_key,
-        },
-    )
-    append_agent_message(chat_key, "assistant", result.get("message", str(result)), result)
-    return redirect(url_for("customer_agent", _anchor="agent-bottom"))
+    flash("Continue booking on the Search Flights checkout page.")
+    return redirect(url_for("customer_search"))
 
 
 @app.post("/customer/agent/confirm-cancellation")
 def customer_agent_confirm_cancellation():
-    if not as_customer():
-        return redirect(url_for("login"))
-    chat_key = "customer_agent_messages"
-    ticket_id = request.form.get("ticket_id")
-    result = agent_post(
-        "/api/agent/confirm-cancellation",
-        {
-            "ticket_id": int(ticket_id),
-            "customer_email": session["email"],
-        },
-    )
-    if "error" in result:
-        answer = result["error"]
-    else:
-        answer = (
-            f"Ticket #{result['ticket_id']} cancelled. "
-            f"Cancellation fee ${result['cancellation_fee']:.2f}; estimated refund ${result['refund_amount']:.2f}."
-        )
-    append_agent_message(chat_key, "assistant", answer, result)
-    return redirect(url_for("customer_agent", _anchor="agent-bottom"))
+    return customer_action_decide(request.form.get("action_id", ""), "confirm")
 
 @app.route("/customer/search", methods=["GET", "POST"])
 def customer_search():
+    if request.args.get("action_id"):
+        if not as_customer():
+            return redirect(url_for("login"))
+        try:
+            action = checkout_action(request.args["action_id"], session["email"])
+            flight = action["payload"]
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM Flight WHERE airline_name=%s AND flight_number=%s AND departure_date_time=%s",
+                            (flight["airline_name"], flight["flight_number"], flight["departure_date_time"]))
+                row = cur.fetchone()
+            return render_template("customer_search.html", rows=[row] if row else [], checkout=action)
+        except ActionError as exc:
+            flash(str(exc))
+            return redirect(url_for("customer_actions"))
     if request.method == "GET" and not request.args:
         return render_template("customer_search.html", rows=[])
     source = request.form if request.method == "POST" else request.args
@@ -637,96 +664,14 @@ def customer_search():
 def customer_purchase():
     if not as_customer():
         return redirect(url_for("login"))
-    ensure_agent_schema(retries=1, delay_seconds=0)
-
-    email   = session["email"]
-    airline = request.form.get("airline_name", "").strip()
-    flight  = request.form.get("flight_number", "").strip()
-    dep_dt  = request.form.get("departure_date_time", "").strip()
-
-    name_on_card = request.form.get("name_on_card", email).strip()
-    card_type    = request.form.get("card_type", "Credit").strip()
-    card_number  = request.form.get("card_number", "").strip()
-    exp_date     = request.form.get("expiration_date", "").strip()  # YYYY-MM-DD
-
-    if not (airline and flight and dep_dt and card_number and exp_date):
-        flash("Missing fields")
-        return redirect(url_for("customer_search"))
-
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT status, departure_date_time
-            FROM Flight
-            WHERE airline_name=%s AND flight_number=%s AND departure_date_time=%s
-            LIMIT 1
-        """, (airline, flight, dep_dt))
-        row = cur.fetchone()
-        if not row:
-            flash("Flight not found")
-            return redirect(url_for("customer_search"))
-
-        if row["status"] == "CANCELLED":
-            flash("Cannot purchase: this flight is CANCELLED.")
-            return redirect(url_for("customer_search"))
-
-        cur.execute("SELECT NOW() AS now_ts")
-        now_ts = cur.fetchone()["now_ts"]
-        if row["departure_date_time"] <= now_ts:
-            flash("Cannot purchase: this flight has already departed.")
-            return redirect(url_for("customer_search"))
-
-        cur.execute("SELECT name FROM Customer WHERE email=%s", (email,))
-        row = cur.fetchone()
-        if not row:
-            flash("No information found for the currently logged-in user.")
-            return redirect(url_for("customer_search"))
-
-        account_name = (row["name"] or "").strip()
-        norm = lambda s: " ".join((s or "").split()).lower()
-        if norm(name_on_card) != norm(account_name):
-            flash("The name on the card must match the account name.")
-            return redirect(url_for("customer_search"))
-
-        if not card_number.isdigit():
-            flash("Card numbers can only contain numbers.")
-            return redirect(url_for("customer_search"))
-        
-        if not (13 <= len(card_number) <= 19):
-            flash("Card number length must be between 13 and 19 digits.")
-            return redirect(url_for("customer_search"))
-
-        cur.execute(_next_ticket_id_sql())
-        next_id = cur.fetchone()["next_id"]
-
-        cur.execute(
-            """
-            INSERT INTO Ticket(
-                ticket_ID, customer_email, airline_name, flight_number, departure_date_time,
-                card_type, card_number, name_on_card, expiration_date, purchase_date_time
-            )
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-            """,
-            (next_id, email, airline, flight, dep_dt,
-             card_type, card_number, name_on_card, exp_date),
-        )
-
-        cur.execute(
-            _visible_customer_trip_sql("AND t.ticket_ID=%s"),
-            (email, next_id),
-        )
-        visible_ticket = cur.fetchone()
-        if not visible_ticket:
-            cur.execute(
-                "DELETE FROM Ticket WHERE ticket_ID=%s AND customer_email=%s",
-                (next_id, email),
-            )
-            conn.commit()
-            flash("Purchase could not be completed because the ticket is not visible in My Flights.")
-            return redirect(url_for("customer_search"))
-
-    conn.commit()
-    flash(f"Ticket purchased (#{next_id})")
-    return redirect(url_for("customer_home"))
+    try:
+        result = purchase_action(request.form.get("action_id", ""), session["email"], request.form)
+        flash(result.get("error") or result["message"])
+        target = "customer_actions" if result.get("error") else "customer_home"
+    except ActionError as exc:
+        flash(str(exc))
+        target = "customer_actions"
+    return redirect(url_for(target))
 
 @app.get("/customer/reviews")
 def customer_reviews():

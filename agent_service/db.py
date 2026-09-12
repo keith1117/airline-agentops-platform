@@ -88,6 +88,9 @@ def ensure_agent_schema(retries: int = 60, delay_seconds: float = 1.0) -> None:
         )
         """,
     ]
+    from .actions import ACTION_DDL
+
+    ddl.extend(ACTION_DDL)
     last_error = None
     for attempt in range(retries):
         try:
