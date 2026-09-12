@@ -74,21 +74,10 @@
 
   <form method="post" action="{{ url_for('staff_copilot', _anchor='agent-bottom') }}" class="agent-input">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <textarea name="message" rows="3"></textarea>
+    <textarea name="message" rows="3" aria-label="Message" placeholder="Ask about sales, reviews, load factors, or routes"></textarea>
     <button type="submit">Send</button>
   </form>
 </section>
 
-<aside class="demo-panel card">
-  <h3>Demo prompts</h3>
-  <ul>
-    <li>Show me the sales report for the last year</li>
-    <li>Which flights have the worst reviews?</li>
-    <li>Which flights are close to full?</li>
-    <li>What are the most popular routes?</li>
-  </ul>
-  <a class="text-link" href="{{ url_for('policy_center') }}">Policy Center</a>
-  <p class="muted">Agent service: {{ agent_url }}</p>
-</aside>
 </div>
 {% endblock %}

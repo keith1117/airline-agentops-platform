@@ -131,14 +131,16 @@ def test_agent_templates_render_structured_messages():
 
     assert "agent-table" in customer
     assert "citation-pill" in customer
-    assert "Policy Center" in customer
+    assert "Demo prompts" not in customer
+    assert "demo-panel" not in customer
     assert "Tool calls" not in customer
     assert "Confirm Mock Booking" not in customer
     assert "Book" in customer
     assert "#agent-bottom" in customer
     assert "agent-table" in staff
     assert "Tool calls" in staff
-    assert "Policy Center" in staff
+    assert "Demo prompts" not in staff
+    assert "demo-panel" not in staff
     assert "#agent-bottom" in staff
 
 

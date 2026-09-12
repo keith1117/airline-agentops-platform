@@ -46,7 +46,7 @@ class ReActAgent:
         self._register_tools()
 
     def _register_tools(self) -> None:
-        self.registry.register(Tool("search_flights", "Search available future flights.", ["customer"], search_flights, risk="safe_read"))
+        self.registry.register(Tool("search_flights", "Search available future flights by IATA code or city name.", ["customer"], search_flights, risk="safe_read"))
         self.registry.register(Tool("get_customer_trips", "Return a customer's upcoming uncancelled trips.", ["customer"], get_customer_trips, risk="safe_read"))
         self.registry.register(Tool("get_customer_ticket", "Return one customer ticket by ticket ID.", ["customer"], get_customer_ticket, risk="safe_read"))
         self.registry.register(Tool("preview_customer_ticket_cancellation", "Preview cancellation fee and refund before cancelling a ticket.", ["customer"], preview_customer_ticket_cancellation, risk="safe_read"))
@@ -1401,11 +1401,11 @@ class ReActAgent:
 
     @staticmethod
     def _extract_period(lower: str) -> Optional[str]:
-        if re.search(r"\bnext\s+month\b", lower):
+        if re.search(r"\bnext\s+month\b|下个?月", lower):
             return "next_month"
-        if re.search(r"\b(?:this|current)\s+year\b", lower):
+        if re.search(r"\b(?:this|current)\s+year\b|今年", lower):
             return "this_year"
-        if re.search(r"\bnext\s+year\b", lower):
+        if re.search(r"\bnext\s+year\b|明年|下一年", lower):
             return "next_year"
         return None
 

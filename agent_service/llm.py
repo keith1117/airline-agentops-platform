@@ -229,8 +229,8 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
         "search_flights": {
             "description": "Search available future flights in the airline database.",
             "properties": {
-                "departure_airport": {"type": "string"},
-                "arrival_airport": {"type": "string"},
+                "departure_airport": {"type": "string", "description": "Departure IATA code or city name."},
+                "arrival_airport": {"type": "string", "description": "Arrival IATA code or city name."},
                 "airline_name": {"type": "string"},
                 "travel_date": {"type": "string", "description": "Exact date as YYYY-MM-DD only. Do not use this for bare years."},
                 "month": {"type": "string", "description": "YYYY-MM for month-level searches such as August 2026"},

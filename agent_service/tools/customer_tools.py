@@ -9,6 +9,43 @@ from ..timezones import as_utc, utc_now, business_today, departure_window_sql, a
 from ..rag import PolicyRAG
 
 
+AIRPORT_CITY_ALIASES = {
+    "SFO": ("san francisco", "旧金山", "三藩市"),
+    "LAX": ("los angeles", "洛杉矶", "洛杉磯"),
+    "JFK": ("new york", "new york city", "nyc", "纽约", "紐約"),
+    "BOS": ("boston", "波士顿", "波士頓"),
+    "SEA": ("seattle", "西雅图", "西雅圖"),
+    "ORD": ("chicago", "芝加哥"),
+    "DFW": ("dallas", "达拉斯", "達拉斯"),
+    "MIA": ("miami", "迈阿密", "邁阿密"),
+    "ATL": ("atlanta", "亚特兰大", "亞特蘭大"),
+    "DEN": ("denver", "丹佛"),
+    "LAS": ("las vegas", "拉斯维加斯", "拉斯維加斯"),
+    "AUS": ("austin", "奥斯汀", "奧斯汀"),
+    "PVG": ("shanghai", "上海"),
+    "BEI": ("beijing", "北京"),
+    "SZX": ("shenzhen", "深圳"),
+    "HKG": ("hong kong", "香港"),
+    "NRT": ("tokyo", "东京", "東京"),
+    "ICN": ("seoul", "首尔", "首爾"),
+    "SIN": ("singapore", "新加坡"),
+    "LHR": ("london", "伦敦", "倫敦"),
+    "CDG": ("paris", "巴黎"),
+    "FRA": ("frankfurt", "法兰克福", "法蘭克福"),
+    "DXB": ("dubai", "迪拜", "杜拜"),
+    "SYD": ("sydney", "悉尼", "雪梨"),
+    "YVR": ("vancouver", "温哥华", "溫哥華"),
+}
+
+AIRPORT_CODE_EQUIVALENTS = {
+    "NYC": ("JFK",),
+    "BEI": ("BEI", "PEK"),
+    "PEK": ("BEI", "PEK"),
+    "HKG": ("HKG", "HKA"),
+    "HKA": ("HKG", "HKA"),
+}
+
+
 def _serialize_rows(rows):
     out = []
     for row in rows:
@@ -59,6 +96,8 @@ def search_flights(
     max_price: Optional[float] = None,
     limit: int = 8,
 ) -> Dict[str, Any]:
+    departure_codes = _airport_codes(departure_airport)
+    arrival_codes = _airport_codes(arrival_airport)
     sql = """
         SELECT f.airline_name, f.flight_number, f.departure_date_time, f.arrival_date_time,
                f.base_price, f.departure_airport, f.arrival_airport, f.status,
@@ -66,6 +105,8 @@ def search_flights(
                COUNT(CASE WHEN c.id IS NULL THEN t.ticket_ID END) AS sold,
                (a.seats - COUNT(CASE WHEN c.id IS NULL THEN t.ticket_ID END)) AS seats_left
         FROM Flight f
+        JOIN Airport da ON da.code=f.departure_airport
+        JOIN Airport aa ON aa.code=f.arrival_airport
         JOIN Airplane a
           ON a.airline_name=f.airline_name AND a.id_number=f.airplane_id_number
         LEFT JOIN Ticket t
@@ -80,11 +121,19 @@ def search_flights(
     """
     args = []
     if departure_airport:
-        sql += " AND f.departure_airport=%s"
-        args.append(departure_airport.upper())
+        if departure_codes:
+            sql += f" AND f.departure_airport IN ({','.join(['%s'] * len(departure_codes))})"
+            args.extend(departure_codes)
+        else:
+            sql += " AND LOWER(da.city)=LOWER(%s)"
+            args.append(departure_airport.strip())
     if arrival_airport:
-        sql += " AND f.arrival_airport=%s"
-        args.append(arrival_airport.upper())
+        if arrival_codes:
+            sql += f" AND f.arrival_airport IN ({','.join(['%s'] * len(arrival_codes))})"
+            args.extend(arrival_codes)
+        else:
+            sql += " AND LOWER(aa.city)=LOWER(%s)"
+            args.append(arrival_airport.strip())
     if airline_name:
         sql += " AND f.airline_name=%s"
         args.append(airline_name)
@@ -93,12 +142,14 @@ def search_flights(
         args.append(flight_number.upper())
     if travel_date and re.match(r"^\d{4}-\d{2}-\d{2}$", str(travel_date)):
         end_day = (date.fromisoformat(travel_date) + timedelta(days=1)).isoformat()
-        clause, bounds = departure_window_sql(travel_date, end_day, departure_airport)
+        zone_hint = departure_codes[0] if departure_codes else None
+        clause, bounds = departure_window_sql(travel_date, end_day, zone_hint)
         sql += " AND " + clause
         args.extend(bounds)
     start, end = _date_bounds(period, month=month)
     if start and end:
-        clause, bounds = departure_window_sql(start, end, departure_airport)
+        zone_hint = departure_codes[0] if departure_codes else None
+        clause, bounds = departure_window_sql(start, end, zone_hint)
         sql += " AND " + clause
         args.extend(bounds)
     if max_price is not None:
@@ -581,27 +632,64 @@ def get_user_preferences(customer_email: str) -> Dict[str, Any]:
         conn.close()
 
 
+def _airport_codes(value):
+    text = str(value or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", text):
+        return ()
+    return AIRPORT_CODE_EQUIVALENTS.get(text, (text,))
+
+
+def _location_in_text(text: str):
+    folded = text.casefold()
+    matches = []
+    for code, aliases in AIRPORT_CITY_ALIASES.items():
+        for alias in aliases:
+            index = folded.find(alias.casefold())
+            if index >= 0:
+                matches.append((index, -len(alias), code))
+    if matches:
+        return min(matches)[2]
+    upper = text.upper()
+    ignored = {"AND", "ARE", "BUY", "CAN", "FLY", "FOR", "GET", "LOW", "MAX", "NOW", "PAY", "THE", "TOO"}
+    codes = [code for code in re.findall(r"\b[A-Z]{3}\b", upper) if code not in ignored]
+    return codes[0] if codes else None
+
+
 def parse_airports(message: str):
     upper = message.upper()
     match = re.search(r"\b(?:FROM\s+)?([A-Z]{3})\s+(?:TO|->)\s+([A-Z]{3})\b", upper)
     if match:
-        return match.group(1), match.group(2)
-    ignored = {
-        "AND",
-        "ARE",
-        "BUY",
-        "CAN",
-        "FLY",
-        "FOR",
-        "GET",
-        "LOW",
-        "MAX",
-        "NOW",
-        "PAY",
-        "THE",
-        "TOO",
-    }
-    codes = [code for code in re.findall(r"\b[A-Z]{3}\b", upper) if code not in ignored]
-    if len(codes) >= 2:
-        return codes[0], codes[1]
+        return _location_in_text(match.group(1)), _location_in_text(match.group(2))
+
+    route_patterns = [
+        r"(?:\bfrom\s+)?(.+?)\s+(?:to|->)\s+(.+)",
+        r"从(.+?)(?:飞往|飛往|飞到|飛到|到|至)(.+)",
+        r"(.+?)(?:飞往|飛往|飞到|飛到)(.+)",
+    ]
+    for pattern in route_patterns:
+        route = re.search(pattern, message, flags=re.IGNORECASE)
+        if route:
+            departure = _location_in_text(route.group(1))
+            arrival = _location_in_text(route.group(2))
+            if departure and arrival:
+                return departure, arrival
+
+    mentions = []
+    folded = message.casefold()
+    for code, aliases in AIRPORT_CITY_ALIASES.items():
+        for alias in aliases:
+            index = folded.find(alias.casefold())
+            if index >= 0:
+                mentions.append((index, code))
+                break
+    for code_match in re.finditer(r"\b[A-Z]{3}\b", upper):
+        code = code_match.group(0)
+        if code not in {"AND", "ARE", "BUY", "CAN", "FLY", "FOR", "GET", "LOW", "MAX", "NOW", "PAY", "THE", "TOO"}:
+            mentions.append((code_match.start(), code))
+    ordered = []
+    for _, code in sorted(mentions):
+        if code not in ordered:
+            ordered.append(code)
+    if len(ordered) >= 2:
+        return ordered[0], ordered[1]
     return None, None

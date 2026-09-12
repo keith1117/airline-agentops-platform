@@ -46,7 +46,7 @@ flowchart LR
 
 Customer Booking Agent at `/customer/agent`:
 
-- Search flights with natural language: `Find flights from SFO to LAX next month`
+- Search flights with IATA codes or city names in English or Chinese: `Find flights from San Francisco to Los Angeles next month` or `查询下个月从上海到波士顿的航班`
 - Ask RAG policy questions: `Can I get a refund if my flight is cancelled?`
 - Ask to book a specific flight: `Book United flight P0206 at 2026-06-08 09:30:00`
 - Review the returned flight and use `Book` to continue on the Search Flights page before entering payment details
@@ -528,8 +528,8 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `TOOL_ROUTER_MODE=deterministic AGENT_ROUTER_MODE=deterministic RAG_RETRIEVER_MODE=keyword POLICY_ANSWER_MODE=extractive python -m pytest tests -q` | `104 passed, 24 skipped` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 python -m pytest tests -q` | P4.3 verification: `113 passed`; rerun P4.4 when Docker daemon access is available |
+| Local fast regression suite | `TOOL_ROUTER_MODE=deterministic AGENT_ROUTER_MODE=deterministic RAG_RETRIEVER_MODE=keyword POLICY_ANSWER_MODE=extractive python -m pytest tests -q` | `110 passed, 24 skipped` |
+| Docker MySQL full regression suite | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 python -m pytest tests -q` | `134 passed` |
 | P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `23 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
