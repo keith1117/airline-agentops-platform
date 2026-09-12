@@ -120,7 +120,7 @@
         <div>
           <span class="trace-id">Trace #{{ trace.id }}</span>
           <strong>{{ trace.role }} · {{ trace.request_path }}</strong>
-          <span class="muted">{{ trace.created_at }}</span>
+          <span class="muted">{{ trace.created_at|local_time }}</span>
         </div>
         <span class="status-chip {% if trace.outcome == 'success' %}ok{% elif trace.outcome == 'error' %}cancelled{% else %}delayed{% endif %}">{{ trace.outcome }}</span>
       </div>

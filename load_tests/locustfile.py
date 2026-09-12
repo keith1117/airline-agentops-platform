@@ -1,4 +1,5 @@
 from uuid import uuid4
+from agent_service.security import issue_identity
 
 from locust import HttpUser, between, task
 
@@ -32,7 +33,7 @@ class AirlineAgentSmokeUser(HttpUser):
         self._staff_chat("Show me the sales report for the last year", "staff_sales_report")
 
     def metrics_snapshot(self) -> None:
-        with self.client.get("/api/metrics", name="GET /api/metrics", catch_response=True) as response:
+        with self.client.get("/api/metrics", name="GET /api/metrics", headers=self._headers("staff"), catch_response=True) as response:
             if response.status_code != 200:
                 response.failure(f"metrics endpoint returned {response.status_code}")
 
@@ -42,7 +43,7 @@ class AirlineAgentSmokeUser(HttpUser):
             "customer_email": self.customer_email,
             "message": message,
         }
-        with self.client.post("/api/agent/customer/chat", json=payload, name=f"POST /customer/chat {name}", catch_response=True) as response:
+        with self.client.post("/api/agent/customer/chat", json=payload, headers=self._headers("customer"), name=f"POST /customer/chat {name}", catch_response=True) as response:
             self._validate_agent_response(response)
 
     def _staff_chat(self, message: str, name: str) -> None:
@@ -52,8 +53,12 @@ class AirlineAgentSmokeUser(HttpUser):
             "airline_name": self.airline_name,
             "message": message,
         }
-        with self.client.post("/api/agent/staff/chat", json=payload, name=f"POST /staff/chat {name}", catch_response=True) as response:
+        with self.client.post("/api/agent/staff/chat", json=payload, headers=self._headers("staff"), name=f"POST /staff/chat {name}", catch_response=True) as response:
             self._validate_agent_response(response)
+
+    def _headers(self, role):
+        principal = self.customer_email if role == "customer" else self.staff_username
+        return {"X-Agent-Identity": issue_identity(role, principal, self.airline_name)}
 
     @staticmethod
     def _validate_agent_response(response) -> None:

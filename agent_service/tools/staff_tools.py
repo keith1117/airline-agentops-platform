@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from ..db import get_conn
-from ..reporting import resolve_sales_window
+from ..reporting import resolve_sales_window, aggregate_sales
 
 
 def _serialize_rows(rows):
@@ -26,9 +26,7 @@ def get_sales_report(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT DATE_FORMAT(t.purchase_date_time, '%%Y-%%m') AS month,
-                       COUNT(*) AS tickets,
-                       SUM(f.base_price) AS estimated_revenue
+                SELECT t.purchase_date_time, f.base_price
                 FROM Ticket t
                 JOIN Flight f
                   ON f.airline_name=t.airline_name
@@ -38,13 +36,13 @@ def get_sales_report(
                   AND t.purchase_date_time >= %s
                   AND t.purchase_date_time < %s
                   AND t.purchase_date_time <= NOW()
-                GROUP BY DATE_FORMAT(t.purchase_date_time, '%%Y-%%m')
-                ORDER BY month
+                ORDER BY t.purchase_date_time
                 """,
-                (airline_name, window["start_date"], window["end_date"]),
+                (airline_name, window["start_utc"], window["end_utc"]),
             )
-            rows = _serialize_rows(cur.fetchall())
+            rows = aggregate_sales(cur.fetchall(), zone=window["timezone"])
         return {
+            "timezone": window["timezone"],
             "rows": rows,
             "count": len(rows),
             "period": window["period"],

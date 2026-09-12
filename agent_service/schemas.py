@@ -1,19 +1,20 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 
 
 class CustomerChatRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(min_length=1, max_length=80)
     customer_email: str
-    message: str
+    message: str = Field(min_length=1, max_length=8000)
 
 
 class StaffChatRequest(BaseModel):
-    session_id: str
+    session_id: str = Field(min_length=1, max_length=80)
     staff_username: str
     airline_name: str
-    message: str
+    message: str = Field(min_length=1, max_length=8000)
 
 
 class ConfirmBookingRequest(BaseModel):
@@ -39,4 +40,4 @@ class AgentResponse(BaseModel):
 
 
 class EvalRunRequest(BaseModel):
-    suite_name: str = "default"
+    suite_name: Literal["default", "p4"] = "default"

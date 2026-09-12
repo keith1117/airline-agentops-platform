@@ -20,15 +20,16 @@
         {% for r in rows %}
         <tr>
           <td><strong>{{ r.airline_name }} {{ r.flight_number }}</strong></td>
-          <td>{{ r.departure_date_time }}</td>
+          <td>{{ r.departure_date_time|local_time }}</td>
           <td>{{ "★" * r.rating }}</td>
           <td>{{ r.comment|e }}</td>
-          <td>{{ r.created_at }}</td>
+          <td>{{ r.created_at|local_time }}</td>
           <td>
             <form method="POST" action="{{ url_for('delete_review') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="airline_name" value="{{ r.airline_name }}">
               <input type="hidden" name="flight_number" value="{{ r.flight_number }}">
-              <input type="hidden" name="departure_date_time" value="{{ r.departure_date_time }}">
+              <input type="hidden" name="departure_date_time" value="{{ r.departure_date_time|local_time }}">
               <button>Delete</button>
             </form>
           </td>

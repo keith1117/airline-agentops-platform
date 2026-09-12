@@ -28,11 +28,12 @@
         <tr>
           <td>#{{ f.ticket_ID }}</td>
           <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span><small>{{ f.flight_number }}</small></td>
-          <td>{{ f.departure_date_time }}</td>
+          <td>{{ f.departure_date_time|airport_time(f.departure_airport) }}<small>Your time: {{ f.departure_date_time|local_time }}</small></td>
           <td>{{ f.airline_name }}</td>
           <td><span class="status-chip">{{ f.status }}</span></td>
           <td>
             <form method="POST" action="{{ url_for('save_review') }}" class="form-row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
               <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
               <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">
@@ -43,6 +44,7 @@
           </td>
           <td>
             <form method="POST" action="{{ url_for('customer_cancel_ticket') }}" onsubmit="return confirm('Cancel ticket #{{ f.ticket_ID }}? Cancellation fees may apply based on the flight status.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="ticket_id" value="{{ f.ticket_ID }}">
               <button class="btn-secondary" type="submit">Cancel Ticket</button>
             </form>

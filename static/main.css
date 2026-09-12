@@ -364,3 +364,9 @@ label { font-weight: 650; color: var(--color-navy); }
   .agentops-filter-grid, .trace-copy-grid { grid-template-columns: 1fr; }
   .trace-heading, .section-heading { flex-direction: column; }
 }
+
+.timezone-picker { margin: 0 0 18px; color: var(--color-muted); font-size: 13px; }
+.timezone-picker summary { cursor: pointer; }
+.timezone-picker form { padding-top: 10px; flex-wrap: wrap; }
+.timezone-picker input { max-width: 100%; }
+.data-table td small { display: block; margin-top: 5px; white-space: normal; }

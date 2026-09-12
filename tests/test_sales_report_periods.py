@@ -41,25 +41,25 @@ class _FakeConnection:
 def test_sales_windows_use_complete_calendar_periods():
     today = date(2026, 6, 5)
 
-    assert resolve_sales_window("this_month", today=today) == {
+    assert {k:v for k,v in resolve_sales_window("this_month", today=today).items() if k not in {"timezone","start_utc","end_utc"}} == {
         "period": "this_month",
         "start_date": "2026-06-01",
         "end_date": "2026-06-06",
         "label": "This month to date (2026-06-01 to 2026-06-05)",
     }
-    assert resolve_sales_window("this_year", today=today) == {
+    assert {k:v for k,v in resolve_sales_window("this_year", today=today).items() if k not in {"timezone","start_utc","end_utc"}} == {
         "period": "this_year",
         "start_date": "2026-01-01",
         "end_date": "2026-06-06",
         "label": "This year to date (2026-01-01 to 2026-06-05)",
     }
-    assert resolve_sales_window("last_month", today=today) == {
+    assert {k:v for k,v in resolve_sales_window("last_month", today=today).items() if k not in {"timezone","start_utc","end_utc"}} == {
         "period": "last_month",
         "start_date": "2026-05-01",
         "end_date": "2026-06-01",
         "label": "Last month (2026-05-01 to 2026-05-31)",
     }
-    assert resolve_sales_window("last_year", today=today) == {
+    assert {k:v for k,v in resolve_sales_window("last_year", today=today).items() if k not in {"timezone","start_utc","end_utc"}} == {
         "period": "last_year",
         "start_date": "2025-01-01",
         "end_date": "2026-01-01",
@@ -77,6 +77,7 @@ def test_sales_report_tool_applies_resolved_start_and_end(monkeypatch):
             "period": period,
             "start_date": "2026-06-01",
             "end_date": "2026-07-01",
+            "start_utc": "2026-06-01", "end_utc": "2026-07-01", "timezone": "UTC",
             "label": "This month (2026-06-01 to 2026-06-30)",
         },
     )
@@ -141,7 +142,7 @@ def test_staff_llm_plan_passes_sales_period_to_tool(monkeypatch):
 
 def test_manual_last_month_report_uses_shared_calendar_window(monkeypatch):
     connection = _FakeConnection()
-    connection.cursor_instance.fetchall = lambda: [{"ym": "2026-05", "tickets": 2}]
+    connection.cursor_instance.fetchall = lambda: [{"purchase_date_time": "2026-05-10 10:00:00"}, {"purchase_date_time": "2026-05-12 10:00:00"}]
     monkeypatch.setattr(web_app, "conn", connection)
     monkeypatch.setattr(
         web_app,
@@ -150,14 +151,16 @@ def test_manual_last_month_report_uses_shared_calendar_window(monkeypatch):
             "period": "last_month",
             "start_date": "2026-05-01",
             "end_date": "2026-06-01",
+            "start_utc": "2026-05-01", "end_utc": "2026-06-01", "timezone": "UTC",
             "label": "Last month (2026-05-01 to 2026-05-31)",
         },
     )
 
     client = web_app.app.test_client()
     with client.session_transaction() as session:
+        session["csrf_token"] = "test-token"
         session.update({"role": "staff", "username": "alice", "airline": "United"})
-    response = client.post("/staff/reports", data={"mode": "last_month"})
+    response = client.post("/staff/reports", data={"csrf_token": "test-token", "mode": "last_month"})
 
     assert response.status_code == 200
     assert connection.cursor_instance.args == ("United", "2026-05-01", "2026-06-01")

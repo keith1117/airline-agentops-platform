@@ -48,6 +48,7 @@
         {% endif %}
         {% if m.meta.pending_booking_search %}
           <form method="post" action="{{ url_for('customer_action_decide', action_id=m.meta.pending_booking_search.action_id or 'missing', decision='checkout') }}" class="inline-form confirm-panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="depart" value="{{ m.meta.pending_booking_search.departure_airport }}">
             <input type="hidden" name="arrive" value="{{ m.meta.pending_booking_search.arrival_airport }}">
             <input type="hidden" name="date" value="{{ m.meta.pending_booking_search.departure_date }}">
@@ -61,6 +62,7 @@
         {% endif %}
         {% if m.meta.pending_cancellation %}
           <form method="post" action="{{ url_for('customer_agent_confirm_cancellation') }}" class="inline-form confirm-panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="action_id" value="{{ m.meta.pending_cancellation.action_id }}">
             <div>
               <strong>Cancellation confirmation required</strong>
@@ -76,6 +78,7 @@
   <div id="agent-bottom"></div>
 
   <form method="post" action="{{ url_for('customer_agent', _anchor='agent-bottom') }}" class="agent-input">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <textarea name="message" rows="3"></textarea>
     <button type="submit">Send</button>
   </form>

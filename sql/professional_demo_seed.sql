@@ -1,3 +1,4 @@
+SET time_zone = '+00:00';
 -- Curated professional demo data for the Docker MySQL demo database.
 -- Scale: 12 airports, 60 United flights, 20 customers, 90 tickets, 45 reviews.
 -- Flight inventory is spread monthly from 2026-06 through 2027-12 for durable demos.

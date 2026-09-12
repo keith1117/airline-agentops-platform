@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from ..db import get_conn
+from ..timezones import as_utc, utc_now, business_today, departure_window_sql, airport_timezone, display_time
 from ..rag import PolicyRAG
 
 
@@ -14,6 +15,9 @@ def _serialize_rows(rows):
         item = {}
         for key, value in row.items():
             item[key] = value.isoformat(sep=" ") if hasattr(value, "isoformat") else value
+        for field, airport_field in (("departure_date_time", "departure_airport"), ("arrival_date_time", "arrival_airport")):
+            if row.get(field) and row.get(airport_field):
+                item[field.replace("_date_time", "_local")] = display_time(row[field], airport_timezone(row[airport_field]))
         out.append(item)
     return out
 
@@ -28,7 +32,7 @@ def _date_bounds(period: Optional[str], month: Optional[str] = None):
                 first = date(year, month_num, 1)
                 second = date(year + (month_num == 12), 1 if month_num == 12 else month_num + 1, 1)
                 return first.isoformat(), second.isoformat()
-    today = date.today()
+    today = business_today()
     if period == "next_month":
         first = date(today.year + (today.month == 12), 1 if today.month == 12 else today.month + 1, 1)
         second = date(first.year + (first.month == 12), 1 if first.month == 12 else first.month + 1, 1)
@@ -88,12 +92,15 @@ def search_flights(
         sql += " AND f.flight_number=%s"
         args.append(flight_number.upper())
     if travel_date and re.match(r"^\d{4}-\d{2}-\d{2}$", str(travel_date)):
-        sql += " AND DATE(f.departure_date_time)=%s"
-        args.append(travel_date)
+        end_day = (date.fromisoformat(travel_date) + timedelta(days=1)).isoformat()
+        clause, bounds = departure_window_sql(travel_date, end_day, departure_airport)
+        sql += " AND " + clause
+        args.extend(bounds)
     start, end = _date_bounds(period, month=month)
     if start and end:
-        sql += " AND f.departure_date_time >= %s AND f.departure_date_time < %s"
-        args.extend([start, end])
+        clause, bounds = departure_window_sql(start, end, departure_airport)
+        sql += " AND " + clause
+        args.extend(bounds)
     if max_price is not None:
         sql += " AND f.base_price <= %s"
         args.append(max_price)
@@ -245,7 +252,7 @@ def preview_customer_ticket_cancellation(customer_email: str, ticket_id: int) ->
             ticket = cur.fetchone()
             if not ticket:
                 return {"error": f"I could not find ticket {ticket_id} for your account."}
-            if ticket["departure_date_time"] <= datetime.now():
+            if as_utc(ticket["departure_date_time"]) <= utc_now():
                 return {"error": "This ticket cannot be cancelled because the flight has already departed."}
 
             base_price = Decimal(str(ticket["base_price"]))
@@ -306,7 +313,7 @@ def cancel_customer_ticket(customer_email: str, ticket_id: int, *, connection=No
             ticket = cur.fetchone()
             if not ticket:
                 return {"error": f"I could not find ticket {ticket_id} for your account."}
-            if ticket["departure_date_time"] <= datetime.now():
+            if as_utc(ticket["departure_date_time"]) <= utc_now():
                 return {"error": "This ticket cannot be cancelled because the flight has already departed."}
 
             base_price = Decimal(str(ticket["base_price"]))
@@ -402,7 +409,7 @@ def create_booking_intent(
                 return {"error": "Flight not found."}
             if flight["status"] == "CANCELLED":
                 return {"error": "Cannot book a cancelled flight."}
-            if flight["departure_date_time"] <= datetime.now():
+            if as_utc(flight["departure_date_time"]) <= utc_now():
                 return {"error": "Cannot book a flight that has already departed."}
             if int(flight["sold"]) >= int(flight["seats"]):
                 return {"error": "Cannot book because this flight is sold out."}
@@ -466,7 +473,7 @@ def confirm_booking(booking_intent_id: int, customer_email: str, idempotency_key
                 (intent["airline_name"], intent["flight_number"], intent["departure_date_time"]),
             )
             flight = cur.fetchone()
-            if not flight or flight["status"] == "CANCELLED" or flight["departure_date_time"] <= datetime.now():
+            if not flight or flight["status"] == "CANCELLED" or as_utc(flight["departure_date_time"]) <= utc_now():
                 cur.execute("UPDATE booking_intents SET status='FAILED' WHERE id=%s", (booking_intent_id,))
                 conn.commit()
                 return {"status": "FAILED", "message": "Flight is no longer bookable."}

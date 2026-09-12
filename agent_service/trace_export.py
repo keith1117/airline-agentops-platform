@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from .db import get_conn
+from .timezones import utc_iso
 
 
 def export_traces(
@@ -49,7 +50,7 @@ def export_traces(
                             "tool_names": [call.get("name") for call in tool_calls],
                             "execution": execution,
                             "trajectory": execution.get("trajectory", []),
-                            "created_at": str(row["created_at"]),
+                            "created_at": utc_iso(row["created_at"]),
                         },
                     },
                     ensure_ascii=False,

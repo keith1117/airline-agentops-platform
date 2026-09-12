@@ -10,19 +10,21 @@
 {% for action in actions %}
 <article class="trace-record">
   <div class="trace-heading"><strong>{{ action.kind.replace('_',' ') }} · {{ action.payload.airline_name }} {{ action.payload.flight_number }}</strong><span class="status-chip">{{ action.status }}</span></div>
-  <p>{{ action.payload.departure_airport or '' }} → {{ action.payload.arrival_airport or '' }} · {{ action.payload.departure_date_time }}</p>
+  <p>{{ action.payload.departure_airport or '' }} → {{ action.payload.arrival_airport or '' }} · {{ action.payload.departure_date_time|airport_time(action.payload.departure_airport) }}<br><small>Your time: {{ action.payload.departure_date_time|local_time }}</small></p>
   {% if staff %}<p>Customer: {{ action.customer_email }}</p>{% endif %}
   {% if action.kind=='CANCELLATION' %}<p>Ticket #{{ action.payload.ticket_id }} · Fee ${{ '%.2f'|format(action.payload.cancellation_fee) }} · Estimated refund ${{ '%.2f'|format(action.payload.refund_amount) }}</p>{% endif %}
-  <p class="muted">Created {{ action.created_at }} · Expires {{ action.expires_at }}</p>
+  <p class="muted">Created {{ action.created_at|local_time }} · Expires {{ action.expires_at|local_time }}</p>
   {% if action.result.message or action.result.error %}<p>{{ action.result.message or action.result.error }}</p>{% endif %}
   {% if not staff and action.status in ['PENDING','CHECKOUT_STARTED'] %}
   <div class="form-row">
-    <form method="post" action="{{ url_for('customer_action_decide',action_id=action.id,decision='confirm' if action.kind=='CANCELLATION' else 'checkout') }}"><button>{{ 'Confirm Cancellation' if action.kind=='CANCELLATION' else 'Continue to Checkout' }}</button></form>
-    <form method="post" action="{{ url_for('customer_action_decide',action_id=action.id,decision='reject') }}"><button class="btn-secondary">Reject</button></form>
+    <form method="post" action="{{ url_for('customer_action_decide',action_id=action.id,decision='confirm' if action.kind=='CANCELLATION' else 'checkout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>{{ 'Confirm Cancellation' if action.kind=='CANCELLATION' else 'Continue to Checkout' }}</button></form>
+    <form method="post" action="{{ url_for('customer_action_decide',action_id=action.id,decision='reject') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn-secondary">Reject</button></form>
   </div>
   {% endif %}
   <details class="trace-trajectory"><summary>Audit history · {{ action.events|length }} events</summary><ol>
-  {% for event in action.events %}<li>{{ event.created_at }} · {{ event.actor }} · {{ event.event }}</li>{% endfor %}
+  {% for event in action.events %}<li>{{ event.created_at|local_time }} · {{ event.actor }} · {{ event.event }}</li>{% endfor %}
   </ol></details>
 </article>
 {% else %}<section class="card empty-state">No actions match this filter.</section>{% endfor %}

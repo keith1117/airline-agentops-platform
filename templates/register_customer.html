@@ -7,6 +7,7 @@
     <h1 class="page-title">Customer registration</h1>
     <p class="muted">Create a demo customer account for flight search and the booking Agent.</p>
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Email
         <input name="email" type="email" required>
       </label>

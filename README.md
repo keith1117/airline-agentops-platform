@@ -2,7 +2,7 @@
 
 Production-like AI Agent MVP built on top of a Flask/MySQL airline ticket reservation system.
 
-This project demonstrates a stable **P0/P1/P2/P3.4 Agent demo** for AI application engineering: AI-first structured routing, an optional OpenAI native tool-calling adapter, safe backend tool execution, grounded policy RAG with citations, search-page booking handoff, ticket cancellation with refund rules, role-based staff analytics, user memory, deterministic Agent Eval, bounded ReAct-style customer and staff workflows, optional runtime auto-selection, trajectory export, Docker Compose, observability, and acceptance tests.
+This project demonstrates a stable **P0–P4 AgentOps demo** for AI application engineering: AI-first structured routing, grounded policy RAG, bounded ReAct workflows, role-based analytics, persistent human confirmation, signed service identity, UTC and IANA timezone governance, trajectory export, Docker Compose, observability, and acceptance tests.
 
 P1 is complete for the current portfolio scope. The customer agent can save route, budget, and airline preferences, then apply them to later searches when the user omits those details. The eval suite uses deterministic task checks for expected tools, answer keywords, citations, forbidden tools, and selected tool arguments. Trace export produces SFT-ready JSONL trajectories without claiming that real SFT has been performed.
 
@@ -96,6 +96,8 @@ Customer-facing flight availability excludes cancelled flights. Cancelled invent
 
 The Agent also includes intent guardrails: identity questions are answered from the authenticated principal, out-of-scope requests do not trigger tools, and staff sales reports are only called for explicit sales/reporting intents.
 
+High-risk actions are intentionally kept out of model execution. The legacy Python booking API remains available for regression compatibility, while production web actions use the persistent queue and explicit human decisions.
+
 ## AI Router and Grounded RAG Modes
 
 Default modes:
@@ -142,6 +144,12 @@ The default runtime is `single_step`, which preserves the stable router-to-tool 
 
 P3.2 adds a confirmation-gated cancellation flow. Agent chat can call `preview_customer_ticket_cancellation` to calculate the cancellation fee and estimated refund, then stops with `cancellation_confirmation_required`. The actual `cancel_customer_ticket` action is still marked as `human_confirmed` and only runs through an explicit confirmation action, not ordinary chat planning. Booking purchase follows the same high-risk boundary by handing off to the Search Flights page instead of completing inside chat.
 
+P4.3 adds a persistent Human-in-the-loop queue. Booking handoffs and cancellation previews receive durable action IDs, expire after 30 minutes, and record every state transition. Booking checkout is an atomic, idempotent transaction with row locks, last-seat protection, fare and preview validation, and a monotonic ticket allocator. Demo card input is validated but only the literal `MOCK-PAYMENT` token is stored.
+
+P4.4 hardens the service boundary. FastAPI `/api/*` calls require a short-lived signed service identity; customer, staff, and operator roles are scoped to their own principals and airlines. Browser POST forms use session-bound CSRF tokens, the secret is persisted with restrictive permissions, and high-risk tools cannot be invoked through model routing. The legacy booking endpoint returns `410 Gone`; purchases can only finish on the Search Flights checkout page.
+
+Time governance stores and compares timestamps in UTC. The browser detects an IANA timezone and lets a user override it; flight schedules are displayed in both airport-local and traveler-local time. Airport-local date searches and business-timezone reports use DST-aware calendar bounds, including 23- and 25-hour days.
+
 The Agent records ReAct-style trajectories in execution metadata and trace export:
 
 ```json
@@ -182,7 +190,7 @@ Then open the demo endpoints:
 - Agent health: `http://127.0.0.1:8001/health`
 - Docker phpMyAdmin: `http://127.0.0.1:8080`
 
-The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, Docker phpMyAdmin for visual database inspection, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the P0 demo flight is available.
+The Compose stack includes MySQL, the FastAPI Agent service, the Flask web app, Docker phpMyAdmin for visual database inspection, and a one-shot `seed` service that runs `python -m scripts.seed_p0_demo` so the demo flight is available. All containers bind to loopback, use UTC, and share a persistent secret volume. Set `BUSINESS_TIMEZONE` to choose the reporting calendar; set a strong shared `SECRET_KEY` for deployment.
 
 Docker phpMyAdmin connects directly to the Compose MySQL service. Use `root` / `root` if prompted. This is independent of MAMP phpMyAdmin, so MAMP does not need to be running for the Docker demo path.
 
@@ -198,10 +206,17 @@ Core Agent API endpoints:
 
 - `POST /api/agent/customer/chat`
 - `POST /api/agent/staff/chat`
-- `POST /api/agent/confirm-booking`
-- `POST /api/agent/confirm-cancellation`
+- `GET /api/agentops/dashboard` (staff/operator identity required)
+- `POST /api/agent/confirm-cancellation` (persistent action ID required)
+- `POST /api/eval/run` (operator identity required)
 - `GET /health`
-- `GET /api/metrics`
+- `GET /api/metrics` (staff/operator identity required)
+
+Human confirmation pages:
+
+- Customer: `/customer/actions`
+- Staff: `/staff/actions`
+- Checkout handoff: `/customer/search?action_id=<id>`
 
 ## Run Locally
 
@@ -513,8 +528,8 @@ Current local verification summary:
 
 | Area | Command / Source | Result |
 | --- | --- | --- |
-| Local fast regression suite | `python -m pytest tests -q` | `76 passed, 18 skipped` |
-| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 python -m pytest tests -q` | Previous baseline: `77 passed`; rerun pending after latest P3 changes |
+| Local fast regression suite | `TOOL_ROUTER_MODE=deterministic AGENT_ROUTER_MODE=deterministic RAG_RETRIEVER_MODE=keyword POLICY_ANSWER_MODE=extractive python -m pytest tests -q` | `104 passed, 24 skipped` |
+| Docker MySQL full regression suite | `RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 python -m pytest tests -q` | P4.3 verification: `113 passed`; rerun P4.4 when Docker daemon access is available |
 | P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `23 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
@@ -558,7 +573,7 @@ These are local development results on a small demo stack. They are useful for p
 
 Real Agentic RL and model fine-tuning are intentionally out of scope for this portfolio MVP. The project instead prepares the engineering inputs that such optimization would need: deterministic eval tasks, trace logging, tool-call metadata, citations, latency metrics, and failed-case reporting.
 
-P4 future governance work also includes UTC-based internal timestamp storage and comparison, consistent Docker/MySQL/backend time semantics, browser-detected IANA user timezones for display, and explicit airport-local timezone handling for flight schedules. This avoids binding the application to the developer machine's current timezone while keeping reporting boundaries deterministic.
+P4 governance is implemented: UTC is the storage and comparison standard, browser IANA timezone detection is persisted with an override, airport-local schedule semantics are explicit, and reporting windows are DST-aware and anchored to `BUSINESS_TIMEZONE`.
 
 Current implemented evaluation:
 

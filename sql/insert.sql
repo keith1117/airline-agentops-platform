@@ -1,3 +1,4 @@
+SET time_zone = '+00:00';
 -- INSERT INTO Airline (name) VALUES 
 -- ('JetBlue');
 

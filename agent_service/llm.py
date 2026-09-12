@@ -240,7 +240,7 @@ def native_tool_schemas(role: str) -> List[Dict[str, Any]]:
         },
         "get_customer_trips": {"description": "Return the authenticated customer's recent trips.", "properties": {}},
         "cancel_customer_ticket": {
-            "description": "Cancel a specific customer ticket when a ticket_id is provided.",
+            "description": "Request a cancellation preview. The backend requires a separate human confirmation before cancelling.",
             "properties": {"ticket_id": {"type": "integer"}},
             "required": ["ticket_id"],
         },

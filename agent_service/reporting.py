@@ -1,5 +1,10 @@
 from datetime import date, timedelta
 from typing import Dict, Optional
+from collections import defaultdict
+from decimal import Decimal
+from zoneinfo import ZoneInfo
+
+from .timezones import business_today, business_timezone, local_date_bounds, as_utc
 
 
 def _first_of_next_month(value: date) -> date:
@@ -7,7 +12,11 @@ def _first_of_next_month(value: date) -> date:
 
 
 def _window(period: str, start: date, end: date, label: str) -> Dict[str, str]:
+    start_utc, end_utc = local_date_bounds(start, end, business_timezone())
     return {
+        "timezone": business_timezone(),
+        "start_utc": start_utc,
+        "end_utc": end_utc,
         "period": period,
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
@@ -21,7 +30,7 @@ def resolve_sales_window(
     end_date: Optional[str] = None,
     today: Optional[date] = None,
 ) -> Dict[str, str]:
-    current = today or date.today()
+    current = today or business_today()
     period = (period or "past_year").strip().lower()
 
     if start_date and end_date:
@@ -46,3 +55,13 @@ def resolve_sales_window(
     if period == "past_year":
         return _window(period, current - timedelta(days=365), current + timedelta(days=1), "Past 12 months")
     raise ValueError(f"Unsupported sales report period: {period}")
+
+
+def aggregate_sales(rows, *, zone, daily=False):
+    groups = defaultdict(lambda: {"tickets": 0, "estimated_revenue": Decimal("0")})
+    for row in rows:
+        local = as_utc(row["purchase_date_time"]).astimezone(ZoneInfo(zone))
+        key = local.strftime("%Y-%m-%d" if daily else "%Y-%m")
+        groups[key]["tickets"] += 1
+        groups[key]["estimated_revenue"] += Decimal(str(row.get("base_price") or 0))
+    return [{"month": key, **value} for key, value in sorted(groups.items())]

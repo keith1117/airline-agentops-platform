@@ -13,6 +13,7 @@
 <section class="grid-2">
   <div class="card">
     <form method="POST" class="staff-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input name="id_number" placeholder="Plane ID" required>
       <input name="seats" type="number" placeholder="Seat Count" required>
       <input name="manufacturer" placeholder="Manufacturer">

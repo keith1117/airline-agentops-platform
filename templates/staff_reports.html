@@ -12,6 +12,7 @@
 
 <section class="grid-3">
   <form method="POST" class="card form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="mode" value="range">
     <strong>Custom range</strong>
     <label>Start <input type="date" name="start"></label>
@@ -19,12 +20,14 @@
     <button>Run</button>
   </form>
   <form method="POST" class="card form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="mode" value="last_month">
     <strong>Last month</strong>
     <p class="muted">Summarize the previous complete calendar month.</p>
     <button>Run Last Month</button>
   </form>
   <form method="POST" class="card form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="mode" value="last_year">
     <strong>Last year</strong>
     <p class="muted">Summarize the previous complete calendar year.</p>

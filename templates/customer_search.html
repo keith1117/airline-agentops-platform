@@ -14,6 +14,7 @@
 
 <section class="card">
   <form method="POST" class="filters">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="row">
       <label>From
         <input name="depart" value="{{ dep or '' }}" maxlength="3" style="text-transform:uppercase" placeholder="SFO">
@@ -43,14 +44,15 @@
         <tr>
           <td><strong>{{ f.airline_name }} {{ f.flight_number }}</strong></td>
           <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span></td>
-          <td>{{ f.departure_date_time }}</td>
-          <td>{{ f.arrival_date_time }}</td>
+          <td>{{ f.departure_date_time|airport_time(f.departure_airport) }}<small>Your time: {{ f.departure_date_time|local_time }}</small></td>
+          <td>{{ f.arrival_date_time|airport_time(f.arrival_airport) }}<small>Your time: {{ f.arrival_date_time|local_time }}</small></td>
           <td class="price-text">${{ '%.2f'|format(f.base_price) }}</td>
           <td><span class="status-chip">{{ f.status }}</span></td>
           {% if session.get('role')=='customer' %}
           <td>
             {% if checkout %}
             <form method="POST" action="{{ url_for('customer_purchase') }}" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="action_id" value="{{ checkout.id }}">
               <p class="muted">Demo payment only. Use 4111111111111111; the number is not stored.</p>
               <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
@@ -64,6 +66,7 @@
             </form>
             {% else %}
             <form method="POST" action="{{ url_for('customer_checkout_start') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="airline_name" value="{{ f.airline_name }}">
               <input type="hidden" name="flight_number" value="{{ f.flight_number }}">
               <input type="hidden" name="departure_date_time" value="{{ f.departure_date_time }}">

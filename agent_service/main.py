@@ -1,12 +1,16 @@
 import time
+import hashlib
 from contextlib import asynccontextmanager
 
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from itsdangerous import BadData
+from .security import read_identity
 
-from .actions import record_handoffs, decide_action
+from .actions import ActionError, record_handoffs, decide_action
 from .config import settings
+from .timezones import utc_now, utc_iso, business_timezone
 from .agentops import load_agentops_dashboard
 from .db import ensure_agent_schema, get_conn
 from .metrics import MetricsCollector
@@ -17,17 +21,48 @@ from .schemas import ConfirmBookingRequest, ConfirmCancellationRequest, Customer
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    business_timezone()
     ensure_agent_schema()
     yield
 
 
 app = FastAPI(title="Airline AgentOps Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.middleware("http")
+async def authenticate_service(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        try:
+            actor = read_identity(request.headers.get("X-Agent-Identity", ""))
+        except BadData:
+            return JSONResponse({"detail": "Authenticated service identity required."}, status_code=401)
+        request.state.actor = actor
+        path = request.url.path
+        if path.startswith("/api/eval/"):
+            allowed = actor["role"] == "operator"
+        elif path.startswith("/api/agentops/") or path == "/api/metrics":
+            allowed = actor["role"] in {"staff", "operator"}
+        elif path.startswith("/api/agent/staff/"):
+            allowed = actor["role"] == "staff"
+        else:
+            allowed = actor["role"] == "customer"
+        if not allowed:
+            return JSONResponse({"detail": "This role cannot access this endpoint."}, status_code=403)
+    return await call_next(request)
+
+
+@app.exception_handler(ActionError)
+async def action_error_handler(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
+def require_principal(request, principal, airline=None):
+    actor = request.state.actor
+    if actor["principal"] != principal or (airline is not None and actor.get("airline") != airline):
+        raise HTTPException(403, "Identity does not match the authenticated account.")
+
+
+def scoped_session(role, principal, session_id):
+    return hashlib.sha256(f"{role}:{principal}:{session_id}".encode()).hexdigest()
+
 
 rag = PolicyRAG(settings.rag_policy_path)
 agent = ReActAgent(rag)
@@ -69,11 +104,13 @@ def health():
         conn = get_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT 1 AS ok")
-                cur.fetchone()
+                cur.execute("SELECT @@session.time_zone AS time_zone, NOW() AS now_utc")
+                clock = cur.fetchone()
         finally:
             conn.close()
-        return {"ok": True, "service": "agent", "database": "ok", "policy_chunks": len(rag.chunks)}
+        return {"ok": True, "service": "agent", "database": "ok", "policy_chunks": len(rag.chunks),
+                "time": {"python_utc": utc_iso(utc_now()), "mysql_utc": utc_iso(clock["now_utc"]),
+                         "mysql_session_timezone": clock["time_zone"], "business_timezone": business_timezone()}}
     except Exception as exc:
         return {"ok": False, "service": "agent", "error": str(exc)}
 
@@ -85,6 +122,7 @@ def get_metrics():
 
 @app.get("/api/agentops/dashboard")
 def get_agentops_dashboard(
+    request: Request,
     role: str = "",
     request_path: str = "",
     runtime_mode: str = "",
@@ -93,6 +131,7 @@ def get_agentops_dashboard(
 ):
     return load_agentops_dashboard(
         metrics.snapshot(),
+        airline_name=request.state.actor.get("airline", ""),
         role=role,
         request_path=request_path,
         runtime_mode=runtime_mode,
@@ -102,25 +141,29 @@ def get_agentops_dashboard(
 
 
 @app.post("/api/agent/customer/chat")
-def customer_chat(req: CustomerChatRequest):
-    result = agent.customer_chat(req.session_id, req.customer_email, req.message)
-    record_handoffs(result, req.customer_email, req.session_id)
+def customer_chat(req: CustomerChatRequest, request: Request):
+    require_principal(request, req.customer_email)
+    session_id = scoped_session("customer", req.customer_email, req.session_id)
+    result = agent.customer_chat(session_id, req.customer_email, req.message)
+    record_handoffs(result, req.customer_email, session_id)
     return _with_tool_count(result)
 
 
 @app.post("/api/agent/staff/chat")
-def staff_chat(req: StaffChatRequest):
-    result = agent.staff_chat(req.session_id, req.staff_username, req.airline_name, req.message)
+def staff_chat(req: StaffChatRequest, request: Request):
+    require_principal(request, req.staff_username, req.airline_name)
+    result = agent.staff_chat(scoped_session("staff", req.staff_username, req.session_id), req.staff_username, req.airline_name, req.message)
     return _with_tool_count(result)
 
 
 @app.post("/api/agent/confirm-booking")
 def confirm_booking(req: ConfirmBookingRequest):
-    return agent.confirm_booking(req.booking_intent_id, req.customer_email, req.idempotency_key)
+    raise HTTPException(410, "Complete bookings on the Search Flights checkout page.")
 
 
 @app.post("/api/agent/confirm-cancellation")
-def confirm_cancellation(req: ConfirmCancellationRequest):
+def confirm_cancellation(req: ConfirmCancellationRequest, request: Request):
+    require_principal(request, req.customer_email)
     return decide_action(req.action_id, req.customer_email, "confirm")
 
 

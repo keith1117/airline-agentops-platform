@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta
 
 from agent_service.db import get_conn, ensure_agent_schema
+from agent_service.timezones import business_today
 
 
 def first_day_next_month() -> date:
-    today = date.today()
+    today = business_today()
     if today.month == 12:
         return date(today.year + 1, 1, 1)
     return date(today.year, today.month + 1, 1)
@@ -49,24 +50,6 @@ def main() -> None:
                 VALUES('testcustomer@nyu.edu', 'Jon Snow', '1234', 'Brooklyn', 'NY')
                 ON DUPLICATE KEY UPDATE name=VALUES(name)
                 """
-            )
-            cur.execute(
-                """
-                DELETE FROM booking_intents
-                WHERE airline_name='United'
-                  AND flight_number='P0206'
-                  AND departure_date_time=%s
-                """,
-                (dep,),
-            )
-            cur.execute(
-                """
-                DELETE FROM Ticket
-                WHERE airline_name='United'
-                  AND flight_number='P0206'
-                  AND departure_date_time=%s
-                """,
-                (dep,),
             )
             cur.execute(
                 """

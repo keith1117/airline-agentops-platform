@@ -5,7 +5,7 @@
   <div>
     <p class="page-kicker">Airline operations</p>
     <h1 class="page-title">Create Flight</h1>
-    <p class="muted">Add new flights to the synthetic inventory.</p>
+    <p class="muted">Enter departure and arrival in each airport’s local timezone.</p>
   </div>
   <a class="btn btn-secondary" href="{{ url_for('staff_copilot') }}">Open AI Copilot</a>
 </div>
@@ -13,13 +13,14 @@
 <section class="grid-2">
   <div class="card">
     <form method="POST" class="staff-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-row">
         <input name="flight_number" placeholder="Flight Number" required>
         <input name="base_price" type="number" step="0.01" placeholder="Base Price" required>
       </div>
       <div class="form-row">
-        <label>Dep <input type="datetime-local" name="departure_date_time" required></label>
-        <label>Arr <input type="datetime-local" name="arrival_date_time" required></label>
+        <label>Departure airport local time <input type="text" placeholder="2027-06-08T09:30" name="departure_date_time" required></label>
+        <label>Arrival airport local time <input type="text" placeholder="2027-06-08T09:30" name="arrival_date_time" required></label>
       </div>
       <div class="form-row">
         <input name="departure_airport" maxlength="3" placeholder="From (IATA)" required>
@@ -50,8 +51,8 @@
         <tr>
           <td>{{ r.flight_number }}</td>
           <td><span class="route-line">{{ r.departure_airport }} <span>→</span> {{ r.arrival_airport }}</span></td>
-          <td>{{ r.departure_date_time }}</td>
-          <td>{{ r.arrival_date_time }}</td>
+          <td>{{ r.departure_date_time|airport_time(r.departure_airport) }}<small>Your time: {{ r.departure_date_time|local_time }}</small></td>
+          <td>{{ r.arrival_date_time|airport_time(r.arrival_airport) }}<small>Your time: {{ r.arrival_date_time|local_time }}</small></td>
           <td><span class="status-chip">{{ r.status }}</span></td>
         </tr>
         {% endfor %}

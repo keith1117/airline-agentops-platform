@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import Settings, settings as default_settings
 from .db import get_conn
+from .timezones import business_today, business_timezone, utc_sql, airport_timezone, display_time
 from .llm import LLMClient, LLMRouter, NativeToolCallingRouter
 from .rag import PolicyRAG, RAGConfigurationError
 from .tool_registry import Tool, ToolRegistry
@@ -261,21 +262,13 @@ class ReActAgent:
         return {"answer": answer, "tool_calls": tool_calls, "tables": table, "execution": execution}
 
     def confirm_booking(self, booking_intent_id: int, customer_email: str, idempotency_key: str) -> Dict[str, Any]:
-        return self.registry.call(
-            "customer",
-            "confirm_booking",
-            booking_intent_id=booking_intent_id,
-            customer_email=customer_email,
-            idempotency_key=idempotency_key,
-        )
+        # Keep the pre-P4 Python API idempotent for regression callers. HTTP and
+        # tool-router entry points are blocked above and use the persistent queue.
+        from .tools.customer_tools import confirm_booking as legacy_confirm_booking
+        return legacy_confirm_booking(booking_intent_id, customer_email, idempotency_key)
 
     def confirm_cancellation(self, customer_email: str, ticket_id: int) -> Dict[str, Any]:
-        return self.registry.call(
-            "customer",
-            "cancel_customer_ticket",
-            customer_email=customer_email,
-            ticket_id=ticket_id,
-        )
+        return {"error": "Confirm the persistent preview from Pending Actions."}
 
     def _should_use_bounded_customer_runtime(self, lower: str, message: str) -> bool:
         mode = self.settings.agent_runtime_mode
@@ -683,7 +676,7 @@ class ReActAgent:
             execution["fallback_reason"] = f"{router_used} router unavailable"
             return None
         try:
-            plan = router.route(role, message, context={})
+            plan = router.route(role, message, context={"business_date": business_today().isoformat(), "business_timezone": business_timezone()})
         except Exception as exc:
             if forced:
                 raise RuntimeError(f"{router_used} router failed: {exc}") from exc
@@ -990,6 +983,7 @@ class ReActAgent:
             "departure_date_time": departure_date_time,
             "departure_date": departure_date_time[:10] if departure_date_time else "",
             "base_price": flight.get("base_price"),
+            "departure_local": flight.get("departure_local"),
         }
 
     def _create_pending_booking(
@@ -1401,7 +1395,7 @@ class ReActAgent:
         elif before:
             year = int(before.group(1))
         else:
-            today = date.today()
+            today = business_today()
             year = today.year if month_num >= today.month else today.year + 1
         return f"{year}-{month_num:02d}"
 
@@ -1709,6 +1703,10 @@ def _normalize_datetime(value: Any) -> Optional[str]:
     if value in (None, ""):
         return None
     text = str(value).strip().replace("T", " ")
+    try:
+        return utc_sql(text)
+    except ValueError:
+        pass
     match = re.search(r"(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?", text)
     if not match:
         return text

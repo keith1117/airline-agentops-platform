@@ -3,6 +3,7 @@ from collections import Counter
 from typing import Any, Dict, Iterable, List
 
 from .db import get_conn
+from .timezones import utc_iso
 from .trace_export import _parse_execution
 
 
@@ -13,6 +14,7 @@ TRACE_PAGE_LIMIT = 200
 def load_agentops_dashboard(
     metrics_snapshot: Dict[str, Any],
     *,
+    airline_name: str = "",
     role: str = "",
     request_path: str = "",
     runtime_mode: str = "",
@@ -36,6 +38,8 @@ def load_agentops_dashboard(
     finally:
         conn.close()
 
+    if airline_name:
+        rows = scoped_dashboard_rows(rows, airline_name)
     return build_agentops_dashboard(
         rows,
         metrics_snapshot,
@@ -107,7 +111,7 @@ def _normalize_trace(row: Dict[str, Any]) -> Dict[str, Any]:
         "principal": row.get("principal") or "-",
         "user_message": row.get("user_message") or "",
         "final_answer": row.get("final_answer") or "",
-        "created_at": str(row.get("created_at") or ""),
+        "created_at": utc_iso(row.get("created_at")),
         "latency_ms": int(row.get("latency_ms") or 0),
         "request_path": execution.get("request_path") or "unknown",
         "runtime_mode_used": execution.get("runtime_mode_used") or "unknown",
@@ -208,3 +212,29 @@ def _counter_rows(values: Iterable[str]) -> List[Dict[str, Any]]:
 
 def _values(traces: List[Dict[str, Any]], field: str) -> List[str]:
     return sorted({str(trace[field]) for trace in traces if trace.get(field)})
+
+
+def scoped_dashboard_rows(rows, airline_name):
+    """Staff sees relevant airline operations; customer text and tool data stay private."""
+    scoped = []
+    for row in rows:
+        calls = _parse_tool_calls(row.get("tool_calls"))
+        matches = any(
+            (call.get("args") or {}).get("airline_name") == airline_name
+            or any(flight.get("airline_name") == airline_name
+                   for flight in (call.get("result") or {}).get("flights", []))
+            for call in calls if isinstance(call, dict)
+        )
+        if not matches:
+            continue
+        if row.get("role") == "customer":
+            row = dict(row)
+            row.update(principal="Customer", user_message="Customer request hidden", final_answer="Customer response hidden")
+            execution = _parse_execution(row.get("reasoning") or "")
+            execution["trajectory"] = [
+                {"type": step.get("type"), "tool": step.get("tool"), "content": "Customer data hidden"}
+                for step in execution.get("trajectory", []) if isinstance(step, dict)
+            ]
+            row["reasoning"] = "\nexecution: " + json.dumps(execution)
+        scoped.append(row)
+    return scoped

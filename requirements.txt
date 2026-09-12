@@ -8,3 +8,5 @@ requests
 pytest
 locust
 cryptography
+itsdangerous
+httpx

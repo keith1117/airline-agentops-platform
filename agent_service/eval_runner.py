@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -113,6 +114,8 @@ def _expected_value_matches(actual: Any, case: Dict[str, Any], field: str) -> bo
 
 
 def run_eval_suite(suite_name: str, agent) -> Dict[str, Any]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", suite_name):
+        raise ValueError("Unknown evaluation suite.")
     path = Path("eval") / f"{suite_name}.jsonl"
     if not path.exists():
         path = Path("eval/default.jsonl")

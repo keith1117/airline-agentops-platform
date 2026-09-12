@@ -13,8 +13,9 @@
 <section class="grid-2">
   <div class="card">
     <form method="POST" class="staff-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input name="flight_number" placeholder="Flight Number" required>
-      <input name="departure_date_time" placeholder="YYYY-MM-DD HH:MM:SS" required>
+      <input name="departure_date_time" placeholder="Departure in UTC: YYYY-MM-DD HH:MM:SS" required>
       <select name="status"><option>ON_TIME</option><option>DELAYED</option><option>CANCELLED</option></select>
       <button>Update</button>
     </form>

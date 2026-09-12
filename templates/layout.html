@@ -40,11 +40,22 @@
     </nav>
 
     <main class="page-wrap">
+      <details class="timezone-picker" data-timezone="{{ display_timezone }}" data-manual="{{ '1' if timezone_manual else '0' }}">
+        <summary>Display timezone: <span id="timezone-label">{{ display_timezone }}</span></summary>
+        <form id="timezone-form" method="post" action="{{ url_for('set_display_timezone') }}" class="form-row">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label>Timezone <input name="timezone" list="timezone-options" value="{{ display_timezone }}" required></label>
+          <datalist id="timezone-options"><option>UTC</option><option>America/New_York</option><option>America/Los_Angeles</option><option>Asia/Shanghai</option><option>Europe/London</option></datalist>
+          <button>Apply</button><button type="button" id="timezone-auto" class="btn-secondary">Use browser timezone</button>
+          <span id="timezone-error" role="status"></span>
+        </form>
+      </details>
       {% with messages=get_flashed_messages() %}
         {% if messages %}<ul class="flash">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script src="{{ url_for('static', filename='timezone.js') }}" defer></script>
 </body>
 </html>

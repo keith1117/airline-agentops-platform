@@ -1,11 +1,13 @@
 services:
   mysql:
     image: mysql:8.0
+    command: ["--default-time-zone=+00:00"]
     environment:
+      TZ: UTC
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: "Airline Ticket Reservation System"
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./sql/create_table.sql:/docker-entrypoint-initdb.d/01-create.sql:ro
@@ -22,11 +24,13 @@ services:
       context: .
       dockerfile: Dockerfile.agent
     environment:
+      TZ: UTC
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DB: "Airline Ticket Reservation System"
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-UTC}
       RAG_POLICY_PATH: docs/policies/airline_policy.md
       AGENT_ROUTER_MODE: ${AGENT_ROUTER_MODE:-auto}
       AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-single_step}
@@ -48,8 +52,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       METRICS_LOG_PATH: logs/agent_metrics.jsonl
+      SECRET_KEY: ${SECRET_KEY:-}
+      APP_SECRET_FILE: /run/agentops/app-secret.key
+    volumes:
+      - app-secrets:/run/agentops
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     depends_on:
       mysql:
         condition: service_healthy
@@ -60,11 +68,13 @@ services:
       dockerfile: Dockerfile.agent
     command: ["python", "-m", "scripts.seed_p0_demo"]
     environment:
+      TZ: UTC
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DB: "Airline Ticket Reservation System"
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-UTC}
       RAG_POLICY_PATH: docs/policies/airline_policy.md
     depends_on:
       mysql:
@@ -75,17 +85,22 @@ services:
       context: .
       dockerfile: Dockerfile.flask
     environment:
+      TZ: UTC
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DB: "Airline Ticket Reservation System"
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-UTC}
       AGENT_SERVICE_URL: http://agent:8001
-      SECRET_KEY: dev
+      SECRET_KEY: ${SECRET_KEY:-}
+      APP_SECRET_FILE: /run/agentops/app-secret.key
       FLASK_DEBUG: 0
       FLASK_PORT: 5000
+    volumes:
+      - app-secrets:/run/agentops
     ports:
-      - "5050:5000"
+      - "127.0.0.1:5050:5000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -97,15 +112,17 @@ services:
   phpmyadmin:
     image: phpmyadmin:latest
     environment:
+      TZ: UTC
       PMA_HOST: mysql
       PMA_PORT: 3306
       PMA_USER: root
       PMA_PASSWORD: root
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       mysql:
         condition: service_healthy
 
 volumes:
+  app-secrets:
   mysql-data:

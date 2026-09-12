@@ -202,8 +202,9 @@ def test_customer_purchase_uses_session_owner_and_persistent_action(monkeypatch)
     monkeypatch.setattr(web_app, "purchase_action", purchase)
     client = app.test_client()
     with client.session_transaction() as session:
+        session["csrf_token"] = "test-token"
         session.update({"role": "customer", "email": "jon@example.com", "display": "Jon Snow"})
-    response = client.post("/customer/purchase", data={"action_id": "action-1", "customer_email": "other@example.com"})
+    response = client.post("/customer/purchase", data={"csrf_token": "test-token", "action_id": "action-1", "customer_email": "other@example.com"})
     assert response.status_code == 302
     assert response.location.endswith("/customer")
     assert captured == {"action_id": "action-1", "email": "jon@example.com"}

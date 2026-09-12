@@ -1,19 +1,79 @@
-import os, hashlib, uuid
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import os, hashlib, uuid, secrets
+import hmac
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, has_request_context
 import pymysql.cursors
 import requests
 from pymysql.cursors import DictCursor
 from dotenv import load_dotenv
 from typing import Any, Dict, Optional, Tuple, List
 from agent_service.db import ensure_agent_schema
-from agent_service.reporting import resolve_sales_window
+from agent_service.reporting import resolve_sales_window, aggregate_sales
+from agent_service.timezones import (airport_timezone, local_to_utc, utc_sql, utc_iso, display_time,
+                                    departure_window_sql, local_date_bounds, valid_zone, business_timezone, business_today)
+from datetime import date as calendar_date, timedelta
+from markupsafe import Markup, escape
+
 from agent_service.actions import (ActionError, create_action, create_cancellation, list_actions,
                                    decide_action, checkout_action, purchase_action)
 
 load_dotenv()
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.getenv("SECRET_KEY", "dev")
+from agent_service.security import secret_key, issue_identity
+app.secret_key = secret_key()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+
+
+@app.before_request
+def protect_forms():
+    session.setdefault("csrf_token", secrets.token_urlsafe(32))
+    if request.method == "POST":
+        submitted = request.form.get("csrf_token", "")
+        if not hmac.compare_digest(session["csrf_token"], submitted):
+            abort(400, "This form expired. Reload the page and try again.")
+
+
+@app.context_processor
+def csrf_context():
+    session.setdefault("csrf_token", secrets.token_urlsafe(32))
+    return {"csrf_token": session["csrf_token"], "display_timezone": session.get("timezone", "UTC"),
+            "timezone_manual": session.get("timezone_manual", False), "business_timezone": business_timezone()}
+
+
+def agent_headers():
+    role = session.get("role", "")
+    principal = session.get("email") if role == "customer" else session.get("username")
+    return {"X-Agent-Identity": issue_identity(role, principal, session.get("airline", ""))}
+
+
+
+@app.template_filter("local_time")
+def local_time_filter(value):
+    if not value:
+        return ""
+    zone = session.get("timezone", "UTC") if has_request_context() else "UTC"
+    return Markup('<time data-user-time datetime="{}">{}</time>').format(utc_iso(value), display_time(value, zone))
+
+
+@app.template_filter("airport_time")
+def airport_time_filter(value, airport):
+    return display_time(value, airport_timezone(airport)) if value else ""
+
+
+@app.template_filter("utc_iso")
+def utc_iso_filter(value):
+    return utc_iso(value)
+
+
+@app.post("/preferences/timezone")
+def set_display_timezone():
+    try:
+        zone = valid_zone(request.form.get("timezone", ""))
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    session["timezone"] = zone
+    session["timezone_manual"] = request.form.get("manual") == "1"
+    return {"timezone": zone}
 
 DB_CONFIG = {
     "host": os.getenv("MYSQL_HOST", "localhost"),
@@ -24,6 +84,7 @@ DB_CONFIG = {
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,
     "autocommit": True,
+    "init_command": "SET time_zone = '+00:00'",
 }
 
 
@@ -66,7 +127,7 @@ def as_staff():
 
 def agent_post(path, payload):
     try:
-        resp = agent_http.post(f"{AGENT_SERVICE_URL}{path}", json=payload, timeout=45)
+        resp = agent_http.post(f"{AGENT_SERVICE_URL}{path}", json=payload, headers=agent_headers(), timeout=45)
         resp.raise_for_status()
         return resp.json()
     except Exception as exc:
@@ -83,6 +144,7 @@ def agent_get(path, params=None):
         resp = agent_http.get(
             f"{AGENT_SERVICE_URL}{path}",
             params=params or {},
+            headers=agent_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -159,7 +221,9 @@ def _table_from_rows(title: str, rows: Any) -> Optional[Dict[str, Any]]:
     return {
         "title": title,
         "columns": [{"key": key, "label": _label(key)} for key in columns],
-        "rows": [{key: _fmt_cell(row.get(key)) for key in columns} for row in rows[:8]],
+        "rows": [{key: (local_time_filter(row[key])
+                         if key in {"departure_date_time", "arrival_date_time", "created_at"} and row.get(key)
+                         else _fmt_cell(row.get(key))) for key in columns} for row in rows[:8]],
         "total": len(rows),
     }
 
@@ -231,7 +295,7 @@ def _agent_display_content(message: Dict[str, Any], table: Optional[Dict[str, An
         pending = meta["pending_booking_search"]
         return (
             f"Bookable flight found: {pending.get('airline_name')} "
-            f"{pending.get('flight_number')} at {pending.get('departure_date_time')}."
+            f"{pending.get('flight_number')} at {display_time(pending['departure_date_time'], airport_timezone(pending.get('departure_airport')))}."
         )
     return content
 
@@ -328,18 +392,20 @@ def build_staff_query(
         if end_date < start_date:
             start_date, end_date = end_date, start_date
         where.append("f.departure_date_time >= %s")
-        where.append("f.departure_date_time < DATE_ADD(%s, INTERVAL 1 DAY)")
-        params.extend([start_date, end_date])
+        where.append("f.departure_date_time < %s")
+        params.extend(local_date_bounds(start_date, (calendar_date.fromisoformat(end_date) + timedelta(days=1)).isoformat(), business_timezone()))
     else:
         if period == "current":
-            where.append("DATE(f.departure_date_time) = CURRENT_DATE")
+            start_utc, end_utc = local_date_bounds(business_today(), business_today() + timedelta(days=1), business_timezone())
+            where.extend(["f.departure_date_time >= %s", "f.departure_date_time < %s"])
+            params.extend([start_utc, end_utc])
         elif period == "future":
             where.append("f.departure_date_time >= CURRENT_TIMESTAMP")
         elif period == "past":
             where.append("f.departure_date_time < CURRENT_TIMESTAMP")
         else:
-            where.append("f.departure_date_time >= CURRENT_DATE")
-            where.append("f.departure_date_time < DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)")
+            where.extend(["f.departure_date_time >= %s", "f.departure_date_time < %s"])
+            params.extend(local_date_bounds(business_today(), business_today() + timedelta(days=30), business_timezone()))
 
     if from_ap:
         where.append("f.departure_airport = %s")
@@ -395,7 +461,10 @@ def public_search():
     if arr:
         sql += " AND arrival_airport=%s"; args.append(arr)
     if date:
-        sql += " AND DATE(departure_date_time)=%s"; args.append(date)
+        end = (calendar_date.fromisoformat(date) + timedelta(days=1)).isoformat()
+        clause, bounds = departure_window_sql(date, end, dep, column="departure_date_time", airport_column="departure_airport")
+        sql += " AND " + clause
+        args.extend(bounds)
     sql += " ORDER BY departure_date_time"
     with conn.cursor() as cur:
         cur.execute(sql, tuple(args))
@@ -473,6 +542,7 @@ def login():
             flash("Invalid credentials")
             return redirect(url_for("login"))
         
+        session.clear()
         session.update({"role":"customer", "email": row["email"], "display": row.get("name") or row["email"]})
         return redirect(url_for("customer_home"))
     
@@ -491,6 +561,7 @@ def login():
         if not row or (row["password"] not in (pwd_md5, pwd)):
             flash("Invalid credentials")
             return redirect(url_for("login"))
+        session.clear()
         session.update({"role":"staff", "username":row["username"], "airline":row["airline_name"]})
         return redirect(url_for("staff_home"))
     else:
@@ -653,7 +724,11 @@ def customer_search():
     if dep: sql += " AND departure_airport=%s"; args.append(dep)
     if arr: sql += " AND arrival_airport=%s"; args.append(arr)
     if flight_number: sql += " AND flight_number=%s"; args.append(flight_number)
-    if date: sql += " AND DATE(departure_date_time)=%s"; args.append(date)
+    if date:
+        end = (calendar_date.fromisoformat(date) + timedelta(days=1)).isoformat()
+        clause, bounds = departure_window_sql(date, end, dep, column="departure_date_time", airport_column="departure_airport")
+        sql += " AND " + clause
+        args.extend(bounds)
     sql += " ORDER BY departure_date_time"
     with conn.cursor() as cur:
         cur.execute(sql, tuple(args))
@@ -885,6 +960,16 @@ def staff_create_flight():
         "status": request.form.get("status", "ON_TIME"),
     }
 
+    try:
+        departure = local_to_utc(data["departure_date_time"], airport_timezone(data["departure_airport"]))
+        arrival = local_to_utc(data["arrival_date_time"], airport_timezone(data["arrival_airport"]))
+        if arrival <= departure:
+            raise ValueError("Arrival must be after departure in UTC.")
+        data["departure_date_time"], data["arrival_date_time"] = utc_sql(departure), utc_sql(arrival)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("staff_create_flight"))
+
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM Airplane WHERE airline_name=%s AND id_number=%s",
@@ -1020,38 +1105,12 @@ def staff_reports():
         window = resolve_sales_window(mode, start_date=start, end_date=end)
         range_label = window["label"]
         with conn.cursor() as cur:
-            if mode == "range":
-                cur.execute(
-                    """
-                    SELECT DATE(t.purchase_date_time) AS day, 
-                    COUNT(*) AS tickets
-                    FROM Ticket t
-                    WHERE t.airline_name=%s 
-                      AND t.purchase_date_time >= %s
-                      AND t.purchase_date_time < %s
-                      AND t.purchase_date_time <= NOW()
-                    GROUP BY DATE(t.purchase_date_time)
-                    ORDER BY day
-                    """,
-                    (airline, window["start_date"], window["end_date"]),
-                )
-                rows = cur.fetchall()
-            elif mode in {"last_month", "last_year"}:
-                cur.execute(
-                    """
-                    SELECT DATE_FORMAT(t.purchase_date_time, '%%Y-%%m') AS ym, 
-                    COUNT(*) AS tickets
-                    FROM Ticket t
-                    WHERE t.airline_name=%s 
-                      AND t.purchase_date_time >= %s
-                      AND t.purchase_date_time < %s
-                      AND t.purchase_date_time <= NOW()
-                    GROUP BY ym 
-                    ORDER BY ym
-                    """,
-                    (airline, window["start_date"], window["end_date"]),
-                )
-                rows = cur.fetchall()
+            cur.execute("SELECT purchase_date_time FROM Ticket WHERE airline_name=%s "
+                        "AND purchase_date_time >= %s AND purchase_date_time < %s AND purchase_date_time <= NOW()",
+                        (airline, window["start_utc"], window["end_utc"]))
+            totals = aggregate_sales(cur.fetchall(), zone=window["timezone"], daily=mode == "range")
+            rows = [{"day" if mode == "range" else "ym": row["month"], "tickets": row["tickets"]} for row in totals]
+        range_label += " · " + window["timezone"]
     return render_template("staff_reports.html", rows=rows, range_label=range_label)
 
 # health

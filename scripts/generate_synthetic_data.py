@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
 from agent_service.db import get_conn
+from agent_service.timezones import utc_now
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ def build_synthetic_dataset(config: SyntheticConfig) -> SyntheticDataset:
 
 def render_insert_sql(dataset: SyntheticDataset) -> str:
     sections = [
+        "SET time_zone = '+00:00';",
         "-- Synthetic data generated for local P2 testing. Uses INSERT IGNORE to preserve existing demo rows.",
         _insert_many("Airline", ["name"], dataset.airlines),
         _insert_many("Airport", ["code", "city", "country", "airport_type"], dataset.airports),
@@ -218,7 +220,7 @@ def _build_flights(
     airplanes: Sequence[Dict[str, Any]],
     rng: random.Random,
 ) -> List[Dict[str, Any]]:
-    start = datetime.now().replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    start = utc_now().replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=1)
     rows = []
     for idx in range(config.flights):
         dep = airports[idx % len(airports)]["code"]
@@ -296,7 +298,7 @@ def _build_reviews(
                 "departure_date_time": flight["departure_date_time"],
                 "rating": rng.randint(1, 5),
                 "comment": REVIEW_COMMENTS[len(rows) % len(REVIEW_COMMENTS)],
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": utc_now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
     return rows

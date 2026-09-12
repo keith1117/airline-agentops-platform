@@ -40,4 +40,4 @@ def test_compose_includes_phpmyadmin_for_docker_mysql_visualization():
     assert "image: phpmyadmin:latest" in compose
     assert "PMA_HOST: mysql" in compose
     assert "PMA_PORT: 3306" in compose
-    assert '"8080:80"' in compose
+    assert '"127.0.0.1:8080:80"' in compose

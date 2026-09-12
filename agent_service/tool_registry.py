@@ -36,4 +36,6 @@ class ToolRegistry:
         tool = self._tools[name]
         if role not in tool.roles:
             raise ToolAccessError(f"Role '{role}' cannot call tool '{name}'")
+        if tool.risk == "human_confirmed" or name == "create_booking_intent":
+            raise ToolAccessError(f"Tool '{name}' requires the separate human confirmation workflow")
         return tool.handler(**kwargs)

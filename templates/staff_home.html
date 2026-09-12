@@ -48,8 +48,8 @@
         <tr>
           <td><strong>{{ f.flight_number }}</strong></td>
           <td><span class="route-line">{{ f.departure_airport }} <span>→</span> {{ f.arrival_airport }}</span></td>
-          <td>{{ f.departure_date_time }}</td>
-          <td>{{ f.arrival_date_time }}</td>
+          <td>{{ f.departure_date_time|airport_time(f.departure_airport) }}<small>Your time: {{ f.departure_date_time|local_time }}</small></td>
+          <td>{{ f.arrival_date_time|airport_time(f.arrival_airport) }}<small>Your time: {{ f.arrival_date_time|local_time }}</small></td>
           <td><span class="status-chip">{{ f.status }}</span></td>
           <td><a href="{{ url_for('staff_customers', flight_number=f.flight_number, departure_date_time=f.departure_date_time) }}">View</a></td>
         </tr>

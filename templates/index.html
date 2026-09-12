@@ -10,6 +10,7 @@
   <div class="hero-search card">
     <div class="search-tab">Flights</div>
     <form method="POST" action="{{ url_for('public_search') }}" class="search-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div>
         <span>From</span>
         <input name="depart" maxlength="3" value="{{ dep or '' }}" required>

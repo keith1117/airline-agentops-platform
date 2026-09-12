@@ -13,3 +13,7 @@ instance/rag/
 sql/synthetic_data.sql
 demo_screenshots/
 *.log
+
+instance/*.key
+output/
+.playwright-cli/

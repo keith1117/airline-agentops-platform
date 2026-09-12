@@ -16,6 +16,7 @@ def get_conn():
         charset="utf8mb4",
         cursorclass=DictCursor,
         autocommit=False,
+        init_command="SET time_zone = '+00:00'",
     )
 
 
