@@ -318,6 +318,7 @@ Observed throughput was `47.17 requests/s`. This is a local smoke benchmark for 
 
 Documentation:
 
+- [Complete P0–P4 development log (Chinese)](docs/development-log-p0-p4.md)
 - [Airline policy knowledge base](docs/policies/airline_policy.md)
 - [P0 project progress record](docs/project_progress_report_p0.md)
 - [P3/P4 bounded AgentOps implementation record](docs/P3-P4.md)
