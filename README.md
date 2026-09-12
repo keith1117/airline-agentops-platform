@@ -535,6 +535,9 @@ Current local verification summary:
 | Docker MySQL full regression suite | `MYSQL_HOST=127.0.0.1 MYSQL_PORT=3307 RUN_P0_ACCEPTANCE=1 RUN_P1_MEMORY=1 RUN_P1_EVAL=1 RUN_P1_TRACE=1 RUN_P1_CORE=1 RUN_P4_ACTIONS=1 python -m pytest tests -q` | `134 passed` |
 | P3 bounded ReAct runtime | `python -m pytest tests/test_p3_bounded_react.py -q` | `23 passed` |
 | Agent QA deterministic smoke | `python -m agent_service.run_agent_qa --seed 11 --count 10 ...` | `10 passed, 0 failed` |
+| Live OpenAI Agent smoke | Forced native routing, embedding retrieval, and grounded LLM policy answer | Native `search_flights` call passed; 2 returned flights matched database rows; embedding + LLM modes passed; all citations resolved to policy chunks |
+| External API failure fallback | Auto modes with intentionally unreachable model and embedding endpoints | Deterministic router, keyword retrieval, extractive answer, fallback reasons, and citations passed |
+| Responsive UI smoke | Pending Actions, checkout, and AgentOps at `1440x900` and `390x844` | No page-level horizontal overflow; mobile data tables use contained horizontal scrolling; form and filter controls remain aligned |
 | Agent health | `GET /health` | `200 OK`, database `ok`, policy chunks `7` |
 | Metrics endpoint | `GET /api/metrics` | `200 OK`, request/latency/tool/error summary |
 | Basic Agent Eval | `POST /api/eval/run` / deterministic suite | `23/23 passed`, tool accuracy `1.0`, citation presence `1.0` |
