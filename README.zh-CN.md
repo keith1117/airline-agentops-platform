@@ -318,10 +318,10 @@ Locust 结果：
 
 项目文档：
 
-- [P0–P4 完整开发日志](docs/development-log-p0-p4.md)
+- [P0–P4 完整开发日志](<docs/development-log-p0-p4(Chinese).md>) ([English](docs/development-log-p0-p4.md))
 - [航空政策知识库](docs/policies/airline_policy.md)
 - [P0 项目进度记录](docs/project_progress_report_p0.md)
-- [P3/P4 bounded AgentOps 实施记录](docs/P3-P4.md)
+- [P3/P4 bounded AgentOps 实施记录](<docs/P3-P4(Chinese).md>) ([English](docs/P3-P4.md))
 
 ## 限制
 
