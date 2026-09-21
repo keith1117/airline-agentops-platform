@@ -22,7 +22,7 @@ This document consolidates the goals, implementation work, key decisions, milest
 | P1 | Add personalized memory, measurable evals, trajectory export, and a reproducible runtime | User preferences, 20-case eval, SFT-ready JSONL, core regressions, and Docker Compose | Initial eval: `20/20`; P0/P1 acceptance: `22 passed`; four Docker services connected |
 | P2 | Establish observability, load validation, and scalable synthetic data | Metrics API/JSONL, Locust, 10k-flight generator, and curated demo seed | Final 20-user smoke: `2813` requests, `0` failures, P95 `33 ms`, `47.17 req/s` |
 | P3 | Extend single-step routing into a bounded multi-step ReAct runtime | Booking preparation, cancellation preview, staff multi-tool analysis, auto runtime, and QA harness | Focused regression: `23 passed`; tool order, step limits, permissions, and stop reasons passed |
-| P4 | Complete evaluation, AgentOps, durable human confirmation, security, time governance, and product polish | Eval metrics, dashboard, action queue, atomic checkout, signed identity, CSRF, UTC/IANA handling, and city search | Final local regression: `110 passed, 24 skipped`; Docker MySQL regression: `134 passed` |
+| P4 | Complete evaluation, AgentOps, durable human confirmation, security, time governance, and product polish | Eval metrics, dashboard, action queue, atomic checkout, signed identity, CSRF, UTC/IANA handling, and city search | Final local regression: `113 passed, 24 skipped`; Docker MySQL regression: `138 passed` |
 
 ## P0: Agent MVP Foundation
 
@@ -277,12 +277,12 @@ Phase result: offline regression `90 passed, 23 skipped`; the Docker MySQL regre
 
 | Acceptance item | Result |
 | --- | --- |
-| Local deterministic regression | `110 passed, 24 skipped` |
-| Docker MySQL full regression | `134 passed` |
+| Local deterministic regression | `113 passed, 24 skipped` |
+| Docker MySQL full regression | `138 passed` |
 | Basic Agent eval | `23/23 passed`; tool accuracy and citation presence `1.0` |
 | Deterministic QA smoke | `10 passed, 0 failed` |
-| Live native tool calling | `search_flights` call passed; both returned flights matched the database row by row |
-| Embedding RAG / policy LLM | Embedding retrieval and grounded LLM answer passed; every citation belonged to a knowledge-base chunk |
+| Repeated live-model eval | `gpt-4o-mini` + `text-embedding-3-small`, 3 × 23: `69/69`; 51 live-path trajectories passed; tool accuracy, citation presence, and citation grounding `1.0`; fallback `0.0`; P50 `1.19 s`, P95 `2.16 s` |
+| Repeated P4 governance eval | 3 × 6: `18/18`; multi-step success, tool order, unauthorized rejection, and confirmation gate `1.0`; native-router denial `3/3` |
 | API failure fallback | Unavailable native/embedding APIs fell back to deterministic, keyword, and extractive paths while retaining fallback reason and citations |
 | Responsive UI | Pending Actions, checkout, and AgentOps had no page-level horizontal overflow at `1440x900` or `390x844` |
 | Time governance | UTC, IANA, and DST-aware date/report boundaries passed focused tests |
@@ -308,10 +308,10 @@ Phase result: offline regression `90 passed, 23 skipped`; the Docker MySQL regre
 | Agent runtime | Native/JSON/deterministic routing; single-step/bounded/auto runtime |
 | Security | Signed identity, CSRF, role/airline isolation, tool risk, transaction guards, and redaction |
 | Data and time | MySQL source of truth, canonical UTC storage, IANA display, and DST-aware boundaries |
-| Automated tests | Local `110 passed, 24 skipped`; Docker MySQL `134 passed` |
+| Automated tests | Local `113 passed, 24 skipped`; Docker MySQL `138 passed` |
 | Eval | `23/23 passed`; tool accuracy and citation presence `1.0` |
 | Load | 20 users/1m, `2813` requests, `0` failures, P95 `33 ms` |
-| Live model | Native routing, embedding RAG, grounded answers, and citation integrity passed |
+| Live model | 3 × 23 default eval `69/69`; 3 × 6 P4 governance eval `18/18`; see [live-model evaluation record](live-model-evaluation.md) |
 | UI | Core P4 pages passed at desktop and 390px viewports |
 
 ## Final Boundaries

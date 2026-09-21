@@ -413,6 +413,111 @@ def test_native_router_path_records_native_router_and_react_trajectory(monkeypat
     assert resp["execution"]["trajectory"][1]["tool"] == "search_flights"
 
 
+def test_native_search_uses_saved_preferences_when_route_is_omitted(monkeypatch):
+    class PreferenceSearchRouter(NativeSearchRouter):
+        def route(self, role, message, context=None):
+            return {
+                "intent": "flight_search",
+                "tool": "search_flights",
+                "args": {"period": "next_month"},
+                "needs_clarification": False,
+                "clarification_question": None,
+            }
+
+    settings = Settings(tool_router_mode="native")
+    agent = ReActAgent(
+        PolicyRAG("docs/policies/airline_policy.md", settings=settings),
+        settings=settings,
+        router=PreferenceSearchRouter(),
+    )
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    calls = []
+
+    def fake_call(role, tool_name, **kwargs):
+        calls.append((tool_name, kwargs))
+        if tool_name == "get_user_preferences":
+            return {
+                "preferences": {
+                    "departure_city": "SFO",
+                    "destination_city": "LAX",
+                    "max_budget": 500.0,
+                    "preferred_airline": "United",
+                }
+            }
+        if tool_name == "search_flights":
+            return {"count": 0, "flights": []}
+        raise AssertionError(f"unexpected tool call {tool_name}")
+
+    monkeypatch.setattr(agent.registry, "call", fake_call)
+
+    resp = agent.customer_chat("native-memory-search", "testcustomer@nyu.edu", "Find flights next month")
+
+    assert [name for name, _ in calls] == ["get_user_preferences", "search_flights"]
+    assert calls[1][1]["departure_airport"] == "SFO"
+    assert calls[1][1]["arrival_airport"] == "LAX"
+    assert calls[1][1]["airline_name"] == "United"
+    assert calls[1][1]["max_price"] == 500.0
+    assert [call["name"] for call in resp["tool_calls"]] == ["get_user_preferences", "search_flights"]
+
+
+def test_staff_booking_request_is_rejected_before_native_routing(monkeypatch):
+    settings = Settings(tool_router_mode="native")
+    agent = ReActAgent(
+        PolicyRAG("docs/policies/airline_policy.md", settings=settings),
+        settings=settings,
+        router=FailingNativeRouter(),
+    )
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    resp = agent.staff_chat(
+        "native-staff-no-book",
+        "admin",
+        "United",
+        "Book United flight P0206 for testcustomer@nyu.edu",
+    )
+
+    assert resp["tool_calls"] == []
+    assert resp["execution"]["request_path"] == "scope_fallback"
+    assert "airline operations" in resp["answer"].lower()
+
+
+def test_native_staff_load_factor_uses_product_formatter(monkeypatch):
+    class LoadFactorRouter:
+        router_kind = "native"
+
+        def enabled(self):
+            return True
+
+        def route(self, role, message, context=None):
+            return {
+                "intent": "get_flight_load_factor",
+                "tool": "get_flight_load_factor",
+                "args": {},
+                "needs_clarification": False,
+                "clarification_question": None,
+            }
+
+    settings = Settings(tool_router_mode="native")
+    agent = ReActAgent(
+        PolicyRAG("docs/policies/airline_policy.md", settings=settings),
+        settings=settings,
+        router=LoadFactorRouter(),
+    )
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        agent.registry,
+        "call",
+        lambda role, tool_name, **kwargs: {
+            "rows": [{"flight_number": "P0206", "load_factor_pct": 50.0}],
+            "count": 1,
+        },
+    )
+
+    resp = agent.staff_chat("native-load", "admin", "United", "Which flights are close to full?")
+
+    assert "highest load factor flights" in resp["answer"].lower()
+
+
 def test_forced_native_router_failure_is_controlled_error(monkeypatch):
     settings = Settings(tool_router_mode="native")
     agent = ReActAgent(
@@ -426,6 +531,27 @@ def test_forced_native_router_failure_is_controlled_error(monkeypatch):
 
     assert "controlled error" in resp["answer"].lower()
     assert "native tool calling failed" in resp["execution"]["fallback_reason"]
+
+
+def test_forced_native_no_tool_records_scope_fallback(monkeypatch):
+    settings = Settings(tool_router_mode="native")
+    agent = ReActAgent(
+        PolicyRAG("docs/policies/airline_policy.md", settings=settings),
+        settings=settings,
+        router=NoToolNativeRouter(),
+    )
+    monkeypatch.setattr(agent, "_trace", lambda *args, **kwargs: None)
+
+    resp = agent.customer_chat(
+        "native-no-customer-tool",
+        "testcustomer@nyu.edu",
+        "Show me the United sales report",
+    )
+
+    assert resp["tool_calls"] == []
+    assert resp["execution"]["router_used"] == "native"
+    assert resp["execution"]["request_path"] == "scope_fallback"
+    assert "airline booking tasks" in resp["answer"].lower()
 
 
 def test_auto_native_no_tool_can_fall_back_to_deterministic(monkeypatch):

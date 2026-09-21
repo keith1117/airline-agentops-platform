@@ -260,6 +260,21 @@ python -m agent_service.run_agent_qa \
   --fail-on-failures
 ```
 
+Repeated live-model evaluation against Docker MySQL:
+
+```bash
+mkdir -p logs/live_model_eval
+docker compose run --rm -T \
+  -v "$PWD/logs/live_model_eval:/app/logs/live_model_eval" \
+  -e TOOL_ROUTER_MODE=native \
+  -e RAG_RETRIEVER_MODE=embedding \
+  -e POLICY_ANSWER_MODE=llm \
+  agent python -m scripts.run_live_model_eval \
+  --suite default --repeats 3
+```
+
+This command sends synthetic evaluation prompts, synthetic account and flight fields, and retrieved policy excerpts to the configured external model and embedding APIs.
+
 Authenticated 20-user Locust smoke from the Agent container:
 
 ```bash
@@ -277,12 +292,13 @@ Latest verified results:
 
 | Area | Result |
 | --- | --- |
-| Deterministic regression | `110 passed, 24 skipped` |
-| Docker MySQL full regression | `134 passed` |
+| Deterministic regression | `113 passed, 24 skipped` |
+| Docker MySQL full regression | `138 passed` |
 | P3 bounded runtime | `23 passed` |
 | Basic Agent eval | `23/23 passed`; tool accuracy and citation presence `1.0` |
 | Deterministic QA smoke | `10 passed, 0 failed` |
-| Live model smoke | Native `search_flights` passed; 2 returned flights matched database rows; embedding retrieval, grounded LLM answer, and policy citations passed. |
+| Repeated live-model eval | `gpt-4o-mini` + `text-embedding-3-small`, 3 × 23 cases: `69/69`; 51 live-path trajectories passed; tool accuracy, citation presence, and citation grounding `1.0`; fallback `0.0`; serial end-to-end P50 `1.19 s`, P95 `2.16 s`. |
+| Repeated P4 governance eval | 3 × 6 cases: `18/18`; multi-step success, tool order, unauthorized rejection, and confirmation gate `1.0`; native-router denial `3/3`. |
 | External API failure | Deterministic router, keyword retrieval, extractive answer, fallback reasons, and citations passed. |
 | Responsive UI | Pending Actions, checkout, and AgentOps passed at `1440x900` and `390x844` without page-level horizontal overflow. |
 
@@ -298,6 +314,8 @@ Locust result:
 | **Total** | **2813** | **0** | **16 ms** | **33 ms** |
 
 Observed throughput was `47.17 requests/s`. This is a local smoke benchmark for regression and demonstration, not a production capacity claim or service-level objective.
+
+The live-model latency numbers are serial, provider-dependent evaluation measurements, not load-test throughput or a production service-level objective. The current client does not persist provider token-usage fields, so this run does not report token cost.
 
 ## Repository Layout
 
@@ -318,6 +336,7 @@ Observed throughput was `47.17 requests/s`. This is a local smoke benchmark for 
 
 Documentation:
 
+- [Live model evaluation record](docs/live-model-evaluation.md) ([中文](<docs/live-model-evaluation(Chinese).md>))
 - [Complete P0–P4 development log](docs/development-log-p0-p4.md) ([中文](<docs/development-log-p0-p4(Chinese).md>))
 - [Airline policy knowledge base](docs/policies/airline_policy.md)
 - [P0 project progress record](docs/project_progress_report_p0.md)

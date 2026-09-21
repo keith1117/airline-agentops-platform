@@ -22,7 +22,7 @@
 | P1 | 增加个性化记忆、可量化 eval、trajectory export 与可复现运行环境 | 用户偏好、20-case eval、SFT-ready JSONL、核心回归、Docker Compose | 初始 eval `20/20`，P0/P1 acceptance `22 passed`，Docker 四服务联通 |
 | P2 | 建立可观测性、负载验证和可扩展合成数据能力 | Metrics API/JSONL、Locust、10k-flight generator、curated demo seed | 最终 20-user smoke：`2813` 请求、`0` 失败、P95 `33 ms`、`47.17 req/s` |
 | P3 | 将 single-step routing 扩展为有边界的多步 ReAct runtime | Booking preparation、取消预览、员工多工具分析、auto runtime、QA harness | 专项回归 `23 passed`；工具顺序、步数限制、权限和 stop reason 通过 |
-| P4 | 完成 eval、AgentOps、持久人工确认、安全、时区和产品收尾 | Eval metrics、dashboard、action queue、原子 checkout、signed identity、CSRF、UTC/IANA、城市查询 | 最终本地回归 `110 passed, 24 skipped`；Docker MySQL 回归 `134 passed` |
+| P4 | 完成 eval、AgentOps、持久人工确认、安全、时区和产品收尾 | Eval metrics、dashboard、action queue、原子 checkout、signed identity、CSRF、UTC/IANA、城市查询 | 最终本地回归 `113 passed, 24 skipped`；Docker MySQL 回归 `138 passed` |
 
 ## P0：Agent MVP 基础
 
@@ -277,12 +277,12 @@
 
 | 验收项 | 结果 |
 | --- | --- |
-| 本地 deterministic 回归 | `110 passed, 24 skipped` |
-| Docker MySQL 完整回归 | `134 passed` |
+| 本地 deterministic 回归 | `113 passed, 24 skipped` |
+| Docker MySQL 完整回归 | `138 passed` |
 | Basic Agent eval | `23/23 passed`；tool accuracy、citation presence `1.0` |
 | Deterministic QA smoke | `10 passed, 0 failed` |
-| 真实 native tool calling | `search_flights` 调用通过，2 条返回航班逐条匹配数据库 |
-| Embedding RAG / policy LLM | Embedding retrieval 与 grounded LLM answer 通过；citation 全部属于知识库 chunk |
+| 重复真实模型评测 | `gpt-4o-mini` + `text-embedding-3-small`，3 × 23：`69/69`；51 个 live-path trajectories 通过；tool accuracy、citation presence、citation grounding 均为 `1.0`；fallback `0.0`；P50 `1.19 s`、P95 `2.16 s` |
+| 重复 P4 治理评测 | 3 × 6：`18/18`；multi-step success、tool order、unauthorized rejection、confirmation gate 均为 `1.0`；native-router 越权拒绝 `3/3` |
 | API failure fallback | Native/embedding API 不可用时降级到 deterministic、keyword、extractive，并保留 fallback reason 与 citation |
 | 响应式 UI | Pending Actions、checkout、AgentOps 在 `1440x900` 和 `390x844` 无页面级横向溢出 |
 | Time governance | UTC、IANA、DST-aware date/report boundaries 通过专项测试 |
@@ -308,10 +308,10 @@
 | Agent runtime | Native/JSON/deterministic routing；single-step/bounded/auto runtime |
 | 安全 | Signed identity、CSRF、role/airline isolation、tool risk、transaction guards、redaction |
 | 数据与时间 | MySQL source of truth、UTC canonical storage、IANA display、DST-aware boundaries |
-| 自动化测试 | 本地 `110 passed, 24 skipped`；Docker MySQL `134 passed` |
+| 自动化测试 | 本地 `113 passed, 24 skipped`；Docker MySQL `138 passed` |
 | Eval | `23/23 passed`，tool accuracy 与 citation presence `1.0` |
 | 负载 | 20 users/1m，`2813` requests，`0` failures，P95 `33 ms` |
-| 真实模型 | Native routing、embedding RAG、grounded answer、citation integrity 通过 |
+| 真实模型 | 3 × 23 default eval `69/69`；3 × 6 P4 governance eval `18/18`；详见[真实模型评测记录](<live-model-evaluation(Chinese).md>) |
 | UI | 桌面与 390px viewport 核心 P4 页面通过 |
 
 ## 最终边界

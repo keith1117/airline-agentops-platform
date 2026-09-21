@@ -213,6 +213,9 @@ class ReActAgent:
             if self._is_identity_question(lower):
                 answer = f"You are currently logged in as staff user {staff_username} for {airline_name}."
                 execution["request_path"] = "identity"
+            elif self._is_payment_or_booking_transaction(lower):
+                answer = self._staff_scope_fallback()
+                execution.update({"request_path": "scope_fallback", "router_used": "deterministic"})
             elif self._is_policy_question(lower) and not self._is_payment_or_booking_transaction(lower):
                 result = self._call_policy_tool("staff", message, tool_calls, execution, router_used="bypassed")
                 answer = result["answer"]
@@ -720,16 +723,34 @@ class ReActAgent:
             result = self._call_policy_tool("customer", args.get("question") or message, tool_calls, execution, router_used="llm")
             return {"answer": result["answer"], "citations": result.get("citations", [])}
         if tool == "search_flights":
-            dep, arr = parse_airports(message)
+            parsed_dep, parsed_arr = parse_airports(message)
+            dep = args.get("departure_airport") or parsed_dep
+            arr = args.get("arrival_airport") or parsed_arr
+            airline = args.get("airline_name") or self._extract_airline(message)
+            max_price = args.get("max_price")
+            if max_price is None:
+                max_price = self._extract_budget(message)
+            if not dep and not arr:
+                prefs = self.registry.call("customer", "get_user_preferences", customer_email=customer_email)
+                pref = prefs.get("preferences") or {}
+                pref_args = {"customer_email": customer_email}
+                self._trajectory_action(execution, "get_user_preferences", pref_args)
+                tool_calls.append({"name": "get_user_preferences", "args": pref_args, "result": prefs})
+                self._trajectory_observation(execution, "get_user_preferences", prefs)
+                dep = pref.get("departure_city")
+                arr = pref.get("destination_city")
+                airline = airline or pref.get("preferred_airline")
+                if max_price is None:
+                    max_price = pref.get("max_budget")
             tool_args = {
-                "departure_airport": args.get("departure_airport") or dep,
-                "arrival_airport": args.get("arrival_airport") or arr,
-                "airline_name": args.get("airline_name"),
+                "departure_airport": dep,
+                "arrival_airport": arr,
+                "airline_name": airline,
                 "flight_number": _normalize_flight_number(args.get("flight_number")),
                 "travel_date": _normalize_travel_date(args.get("travel_date")),
                 "month": _normalize_month(args.get("month")) or self._extract_month(message),
                 "period": _normalize_period(args.get("period")) or self._extract_period(message.lower()),
-                "max_price": args.get("max_price"),
+                "max_price": max_price,
             }
             self._trajectory_action(execution, "search_flights", tool_args)
             result = self.registry.call(
@@ -769,11 +790,20 @@ class ReActAgent:
             )
             execution.update({"request_path": "tool_routing", "answer_mode_used": "backend_formatter"})
             tool_calls.append({"name": "remember_user_preference", "args": args, "result": result})
-            return {"answer": "I saved your travel preferences for future searches."}
+            saved_parts = []
+            if args.get("departure_city") and args.get("destination_city"):
+                saved_parts.append(f"route {args['departure_city']} -> {args['destination_city']}")
+            if args.get("max_budget") is not None:
+                saved_parts.append(f"max budget ${float(args['max_budget']):g}")
+            if args.get("preferred_airline"):
+                saved_parts.append(f"preferred airline {args['preferred_airline']}")
+            suffix = ", ".join(saved_parts) if saved_parts else "the available preferences"
+            return {"answer": f"I saved {suffix} for future searches."}
         if tool == "create_booking_intent":
             return self._handle_booking_request(args, message, customer_email, tool_calls, execution)
         if tool:
             raise RuntimeError(f"LLM router returned unsupported customer tool: {tool}")
+        execution["request_path"] = "scope_fallback"
         return {"answer": self._customer_scope_fallback()}
 
     def _handle_ticket_followup(
@@ -1061,11 +1091,16 @@ class ReActAgent:
                 answer = self._format_review_analysis(result, review_args["target"], review_args["order"])
             elif tool == "get_sales_report":
                 answer = self._format_sales_report(result)
+            elif tool == "get_flight_load_factor":
+                answer = self._format_table("Highest load factor flights", table or [])
+            elif tool == "get_route_performance":
+                answer = self._format_table("Route performance", table or [])
             else:
                 answer = self._format_table(tool.replace("_", " ").title(), table or [])
             return {"answer": answer, "tables": table}
         if tool:
             raise RuntimeError(f"LLM router returned unsupported staff tool: {tool}")
+        execution["request_path"] = "scope_fallback"
         return {"answer": self._staff_scope_fallback()}
 
     def _call_policy_tool(

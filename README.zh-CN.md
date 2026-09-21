@@ -260,6 +260,21 @@ python -m agent_service.run_agent_qa \
   --fail-on-failures
 ```
 
+使用 Docker MySQL 重复执行真实模型评测：
+
+```bash
+mkdir -p logs/live_model_eval
+docker compose run --rm -T \
+  -v "$PWD/logs/live_model_eval:/app/logs/live_model_eval" \
+  -e TOOL_ROUTER_MODE=native \
+  -e RAG_RETRIEVER_MODE=embedding \
+  -e POLICY_ANSWER_MODE=llm \
+  agent python -m scripts.run_live_model_eval \
+  --suite default --repeats 3
+```
+
+该命令会把合成评测提示、合成账号与航班字段以及检索到的政策片段发送至已配置的外部模型和 embedding API。
+
 从 Agent 容器中执行已认证的 20 用户 Locust smoke：
 
 ```bash
@@ -277,12 +292,13 @@ docker compose exec -T agent python -m locust \
 
 | 领域 | 结果 |
 | --- | --- |
-| Deterministic 回归 | `110 passed, 24 skipped` |
-| Docker MySQL 完整回归 | `134 passed` |
+| Deterministic 回归 | `113 passed, 24 skipped` |
+| Docker MySQL 完整回归 | `138 passed` |
 | P3 bounded runtime | `23 passed` |
 | Basic Agent eval | `23/23 passed`；tool accuracy 和 citation presence 均为 `1.0` |
 | Deterministic QA smoke | `10 passed, 0 failed` |
-| 真实模型 smoke | Native `search_flights` 通过；返回的 2 条航班与数据库记录一致；embedding 检索、grounded LLM 回答和政策 citation 均通过。 |
+| 重复真实模型评测 | `gpt-4o-mini` + `text-embedding-3-small`，3 × 23 cases：`69/69`；51 个 live-path trajectories 全部通过；tool accuracy、citation presence、citation grounding 均为 `1.0`；fallback `0.0`；串行端到端 P50 `1.19 s`、P95 `2.16 s`。 |
+| 重复 P4 治理评测 | 3 × 6 cases：`18/18`；multi-step success、tool order、unauthorized rejection、confirmation gate 均为 `1.0`；native-router 越权拒绝 `3/3`。 |
 | 外部 API 故障 | Deterministic router、关键词检索、抽取式回答、fallback reason 和 citation 均通过。 |
 | 响应式 UI | Pending Actions、checkout 和 AgentOps 在 `1440x900` 与 `390x844` 下通过，无页面级横向溢出。 |
 
@@ -298,6 +314,8 @@ Locust 结果：
 | **总计** | **2813** | **0** | **16 ms** | **33 ms** |
 
 观测吞吐量为 `47.17 requests/s`。这是用于回归和演示的本地 smoke benchmark，不代表生产容量或服务等级目标。
+
+真实模型延迟来自串行、受供应商影响的评测，不代表负载吞吐或生产服务等级目标。当前 client 不持久化供应商 token usage 字段，因此本次没有报告 token 成本。
 
 ## 仓库结构
 
@@ -318,6 +336,7 @@ Locust 结果：
 
 项目文档：
 
+- [真实模型评测记录](<docs/live-model-evaluation(Chinese).md>) ([English](docs/live-model-evaluation.md))
 - [P0–P4 完整开发日志](<docs/development-log-p0-p4(Chinese).md>) ([English](docs/development-log-p0-p4.md))
 - [航空政策知识库](docs/policies/airline_policy.md)
 - [P0 项目进度记录](docs/project_progress_report_p0.md)

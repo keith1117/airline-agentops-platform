@@ -26,7 +26,8 @@ def _run_case(agent, case: Dict[str, Any], idx: int, suffix: str = "") -> Dict[s
 
 
 def _resolve_case_fixture(case: Dict[str, Any]) -> Dict[str, Any]:
-    if case.get("fixture") != "future_customer_ticket":
+    fixture = case.get("fixture")
+    if fixture not in {"future_customer_ticket", "customer_with_future_ticket"}:
         return case
 
     from .db import get_conn
@@ -56,7 +57,8 @@ def _resolve_case_fixture(case: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("The eval fixture requires one future ON_TIME or DELAYED customer ticket.")
     resolved = dict(case)
     resolved["customer_email"] = ticket["customer_email"]
-    resolved["message"] = case["message"].format(ticket_id=ticket["ticket_id"])
+    if fixture == "future_customer_ticket":
+        resolved["message"] = case["message"].format(ticket_id=ticket["ticket_id"])
     return resolved
 
 

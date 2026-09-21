@@ -275,7 +275,7 @@ AgentOps Dashboard / Trace Viewer 已实现：
 - The search tool can also match city names directly against the `Airport` table, so routed tool calls are not restricted to IATA-only input.
 - Chinese relative periods (`下个月`, `今年`, `明年`) preserve the same date-window behavior as their English equivalents.
 - Customer Agent and Staff Copilot use a single full-width conversation panel; wide result tables scroll within their message card, and the development-oriented Demo prompts panels have been removed.
-- Final verification: local regression `110 passed, 24 skipped`; Docker MySQL full regression `134 passed`; Playwright confirmed the Chinese `旧金山` to `洛杉矶` flow returns `SFO` to `LAX` inventory and both Agent pages render without Demo prompts.
+- 最终验证：本地回归 `113 passed, 24 skipped`；Docker MySQL 完整回归 `138 passed`；Playwright 已确认中文 `旧金山` 到 `洛杉矶` 会返回 `SFO` 到 `LAX` 库存，且双端 Agent 页面均不再显示 Demo prompts。
 
 ### Time Governance and Dynamic User Timezone
 
